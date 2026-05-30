@@ -3,7 +3,7 @@ const path = require('path');
 // Resolve ts-jest from the pnpm virtual store at the workspace root
 const tsJestPath = path.resolve(
   __dirname,
-  '../../node_modules/.pnpm/ts-jest@29.4.6_@babel+core@7.29.0_@jest+transform@30.3.0_@jest+types@30.3.0_babel-jest@30.3.0_hcunltktbgtaqkyvzy23fkgiee/node_modules/ts-jest'
+  '../../node_modules/.pnpm/ts-jest@29.4.6_@babel+core@7.29.0_@jest+transform@30.3.0_@jest+types@30.3.0_babel-jest@30.3.0_ywazqpqiy72pgx36j5dij2dtmy/node_modules/ts-jest'
 );
 
 /** @type {import('jest').Config} */

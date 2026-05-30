@@ -43,8 +43,8 @@
     "eslint-plugin-prettier": "^5.0.0",
     "husky": "^8.0.3",
     "lint-staged": "^14.0.0",
-    "prettier": "^3.0.0",
     "pnpm": "^10.32.1",
+    "prettier": "^3.0.0",
     "typescript": "^5.9.3"
   },
   "lint-staged": {
@@ -58,5 +58,8 @@
     "pnpm-lock.yaml": [
       "pnpm exec prettier --write"
     ]
+  },
+  "dependencies": {
+    "prom-client": "15.1.0"
   }
 }
