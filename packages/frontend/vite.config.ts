@@ -26,5 +26,23 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // Warn when any individual chunk exceeds 500 kB
+    chunkSizeWarningLimit: 500,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // React runtime – changes rarely, maximises cache hits
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          // Apollo / GraphQL – large and stable
+          'vendor-apollo': ['@apollo/client', 'graphql', 'graphql-ws'],
+          // Recharts – heaviest chart library
+          'vendor-recharts': ['recharts'],
+          // Framer Motion – animation runtime
+          'vendor-framer': ['framer-motion'],
+          // Utility libs
+          'vendor-utils': ['date-fns', 'clsx', 'tailwind-merge', 'zustand'],
+        },
+      },
+    },
   },
 });
