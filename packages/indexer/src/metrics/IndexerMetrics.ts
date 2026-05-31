@@ -17,6 +17,10 @@
  *   - indexer_circuit_breaker_state            (gauge: 0=CLOSED,1=HALF_OPEN,2=OPEN)
  *   - indexer_queue_depth                      (gauge)
  *   - indexer_last_processed_ledger_sequence   (gauge)
+ *   - indexer_horizon_requests_total           (counter, labelled by endpoint)
+ *   - indexer_horizon_request_errors_total     (counter, labelled by endpoint)
+ *   - indexer_db_write_errors_total            (counter, labelled by table)
+ *   - indexer_ledger_ingestion_rate_per_second (gauge)
  */
 
 import {
@@ -39,6 +43,9 @@ export class IndexerMetrics {
   readonly validationFailures: Counter<string>;
   readonly idempotencySkips: Counter<string>;
   readonly websocketReconnections: Counter<string>;
+  readonly horizonRequestsTotal: Counter<string>;
+  readonly horizonRequestErrorsTotal: Counter<string>;
+  readonly dbWriteErrorsTotal: Counter<string>;
 
   // Histograms
   readonly cycleDuration: Histogram<string>;
@@ -49,6 +56,7 @@ export class IndexerMetrics {
   readonly circuitBreakerState: Gauge<string>;
   readonly queueDepth: Gauge<string>;
   readonly lastProcessedLedger: Gauge<string>;
+  readonly ledgerIngestionRate: Gauge<string>;
 
   private constructor() {
     this.registry = new Registry();
@@ -104,6 +112,27 @@ export class IndexerMetrics {
       registers: [this.registry],
     });
 
+    this.horizonRequestsTotal = new Counter({
+      name: 'indexer_horizon_requests_total',
+      help: 'Total number of Horizon API requests by endpoint',
+      labelNames: ['endpoint'] as const,
+      registers: [this.registry],
+    });
+
+    this.horizonRequestErrorsTotal = new Counter({
+      name: 'indexer_horizon_request_errors_total',
+      help: 'Total number of Horizon API request failures by endpoint',
+      labelNames: ['endpoint'] as const,
+      registers: [this.registry],
+    });
+
+    this.dbWriteErrorsTotal = new Counter({
+      name: 'indexer_db_write_errors_total',
+      help: 'Total number of database write failures by table',
+      labelNames: ['table'] as const,
+      registers: [this.registry],
+    });
+
     // -----------------------------------------------------------------------
     // Histograms
     // -----------------------------------------------------------------------
@@ -150,6 +179,12 @@ export class IndexerMetrics {
       help: 'Sequence number of the last successfully processed ledger',
       registers: [this.registry],
     });
+
+    this.ledgerIngestionRate = new Gauge({
+      name: 'indexer_ledger_ingestion_rate_per_second',
+      help: 'Recent ledger ingestion rate in ledgers per second',
+      registers: [this.registry],
+    });
   }
 
   static getInstance(): IndexerMetrics {
@@ -167,6 +202,10 @@ export class IndexerMetrics {
   setCircuitBreakerState(state: 'CLOSED' | 'HALF_OPEN' | 'OPEN'): void {
     const stateMap = { CLOSED: 0, HALF_OPEN: 1, OPEN: 2 } as const;
     this.circuitBreakerState.set(stateMap[state]);
+  }
+
+  setLedgerIngestionRate(ledgersPerSecond: number): void {
+    this.ledgerIngestionRate.set(ledgersPerSecond);
   }
 
   /** Return the full Prometheus text exposition. */
