@@ -2,9 +2,9 @@ import { ledgerResolvers } from './ledgers';
 import { transactionResolvers } from './transactions';
 import { analyticsResolvers } from './analytics';
 import { pubsub, EVENTS } from '../pubsub';
-import { authService, User } from '../services/auth';
+import { authService } from '../services/auth';
 import { db } from '../database/connection';
-import { withResolverLogging, AuthError, NotFoundError } from '../utils/resolver-error';
+import { ValidationService } from '../services/validation';
 
 export const resolvers = {
   Query: {
@@ -22,10 +22,14 @@ export const resolvers = {
     ),
   },
   Mutation: {
-    register: withResolverLogging(
-      'Mutation.register',
-      async (_: any, args: { input: { email: string; password: string; name: string } }, context: any) => {
-        const { email, password, name } = args.input;
+    register: async (_: any, args: { input: unknown }) => {
+      // Issue #125 – Validate mutation input with Zod before processing
+      const { email, password, name } = ValidationService.validateRegisterInput(args.input);
+
+      const existing = await db.queryOne('SELECT id FROM users WHERE email = $1', [email]);
+      if (existing) {
+        throw new Error('User with this email already exists');
+      }
 
         const existing = await db.queryOne('SELECT id FROM users WHERE email = $1', [email]);
         if (existing) {
@@ -48,7 +52,18 @@ export const resolvers = {
           name: user.name,
           role: user.role,
           createdAt: user.created_at,
-        });
+        },
+        token,
+      };
+    },
+    login: async (_: any, args: { input: unknown }) => {
+      // Issue #125 – Validate mutation input with Zod before processing
+      const { email, password } = ValidationService.validateLoginInput(args.input);
+
+      const user = await db.queryOne(
+        'SELECT id, email, password_hash, name, role, api_key, created_at FROM users WHERE email = $1',
+        [email]
+      );
 
         return {
           user: {
@@ -87,18 +102,14 @@ export const resolvers = {
           name: user.name,
           role: user.role,
           createdAt: user.created_at,
-        });
-
-        return {
-          user: {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            role: user.role,
-            createdAt: user.created_at,
-          },
-          token,
-        };
+        },
+        token,
+      };
+    },
+    generateApiKey: async (_: any, __: any, context: any) => {
+      // Issue #125 – Authentication guard (no user-supplied input to validate here)
+      if (!context.user) {
+        throw new Error('Authentication required');
       }
     ),
     generateApiKey: withResolverLogging(
@@ -111,10 +122,15 @@ export const resolvers = {
         const apiKey = authService.generateApiKey();
         await db.query('UPDATE users SET api_key = $1 WHERE id = $2', [apiKey, context.user.id]);
 
-        return {
-          apiKey,
-          user: context.user,
-        };
+      return {
+        apiKey,
+        user: context.user,
+      };
+    },
+    revokeApiKey: async (_: any, __: any, context: any) => {
+      // Issue #125 – Authentication guard (no user-supplied input to validate here)
+      if (!context.user) {
+        throw new Error('Authentication required');
       }
     ),
     revokeApiKey: withResolverLogging(
