@@ -1,0 +1,1 @@
+{"version":3,"file":"stellar.d.ts","sourceRoot":"","sources":["stellar.ts"],"names":[],"mappings":"AAAA,MAAM,MAAM,cAAc,GAAG,SAAS,GAAG,SAAS,CAAC;AAEnD,MAAM,WAAW,oBAAoB;IACnC,OAAO,EAAE,cAAc,CAAC;IACxB,UAAU,EAAE,MAAM,CAAC;IACnB,iBAAiB,EAAE,MAAM,CAAC;CAC3B"}

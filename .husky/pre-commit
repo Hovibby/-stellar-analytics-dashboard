@@ -6,9 +6,15 @@ pnpm exec lint-staged
 # Skip tests if only lockfile or package.json changes are staged
 STAGED_FILES=$(git diff --cached --name-only)
 if echo "$STAGED_FILES" | grep -qE "^(pnpm-lock\.yaml|package\.json)$"; then
-  # Only lockfile/package.json changes, skip tests
   exit 0
 fi
 
-# Run unit tests only, skip e2e tests to avoid timeout issues
-pnpm --filter @stellar-analytics/api test -- --passWithNoTests
+# Run frontend unit tests on staged frontend changes
+if echo "$STAGED_FILES" | grep -qE "^packages/frontend/"; then
+  pnpm --filter @stellar-analytics/frontend test -- --passWithNoTests
+fi
+
+# Run API unit tests on staged API changes
+if echo "$STAGED_FILES" | grep -qE "^packages/api/"; then
+  pnpm --filter @stellar-analytics/api test -- --passWithNoTests
+fi

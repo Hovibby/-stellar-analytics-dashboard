@@ -4,8 +4,8 @@
  * Recovery job to process ledgers from the dead letter queue.
  */
 
-import { dlq, type RetryableLedger } from './DeadLetterQueue';
-import { metrics } from '../../packages/indexer/src/metrics/IndexerMetrics';;
+import { dlq, type RetryableLedger } from './DeadLetterQueue.js';
+// import { metrics } from '../metrics/IndexerMetrics.js';
 
 export class RecoveryJob {
   private isProcessing = false;
@@ -28,9 +28,9 @@ export class RecoveryJob {
         const success = await this.retryProcessor(ledger.sequence);
         if (success) {
           dlq.remove(ledger.sequence);
-          metrics.errorsTotal.inc({ type: 'dlq_retry_success' });
+          // metrics.errorsTotal.inc({ type: 'dlq_retry_success' });
         } else {
-          metrics.errorsTotal.inc({ type: 'dlq_retry_failed' });
+          // metrics.errorsTotal.inc({ type: 'dlq_retry_failed' });
         }
       }
     };

@@ -1,5 +1,20 @@
 import { z } from 'zod';
-import { Asset, AssetMetrics, AccountMetrics, NetworkMetrics, Operation, Transaction, Ledger } from './stellar';
+import { 
+  Asset, 
+  AssetMetrics, 
+  AccountMetrics, 
+  NetworkMetrics, 
+  Operation, 
+  Transaction, 
+  Ledger,
+  AssetSchema,
+  AssetMetricsSchema,
+  AccountMetricsSchema,
+  NetworkMetricsSchema,
+  TransactionSchema,
+  OperationSchema,
+  LedgerSchema
+} from './stellar';
 
 // GraphQL API types
 export const PageInfoSchema = z.object({
@@ -14,14 +29,21 @@ export const EdgeSchema = z.object({
   cursor: z.string(),
   node: z.any(),
 });
-export type Edge = z.infer<typeof EdgeSchema>;
+export type Edge<T = any> = {
+  cursor: string;
+  node: T;
+};
 
 export const ConnectionSchema = z.object({
   edges: z.array(EdgeSchema),
   pageInfo: PageInfoSchema,
   totalCount: z.number(),
 });
-export type Connection = z.infer<typeof ConnectionSchema>;
+export type Connection<T = any> = {
+  edges: Edge<T>[];
+  pageInfo: PageInfo;
+  totalCount: number;
+};
 
 // Query arguments
 export const PaginationArgsSchema = z.object({

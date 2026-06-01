@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "Stellar Analytics Dashboard",
+    "network": "Netzwerk",
+    "latestLedger": "Letztes Hauptbuch",
+    "refreshing": "Aktualisiere…",
+    "retry": "Wiederholen",
+    "switchToDarkMode": "Zum Dunkelmodus wechseln",
+    "switchToLightMode": "Zum Hellmodus wechseln"
+  },
+  "tabs": {
+    "dashboard": "Dashboard",
+    "ledgers": "Hauptbücher",
+    "transactions": "Transaktionen"
+  },
+  "errors": {
+    "failedToLoad": "Fehler beim Laden der Dashboard-Daten",
+    "couldNotRefresh": "Daten konnten nicht aktualisiert werden",
+    "exportFailed": "Export fehlgeschlagen. Bitte versuchen Sie es erneut."
+  },
+  "metrics": {
+    "totalLedgers": "Gesamte Hauptbücher",
+    "totalTransactions": "Gesamte Transaktionen",
+    "totalOperations": "Gesamte Operationen",
+    "totalAccounts": "Gesamte Konten",
+    "activeAccounts24h": "Aktive Konten (24h)",
+    "volume24h": "Volumen (24h)",
+    "avgFee24h": "Durchschnittsgebühr (24h)",
+    "successRate24h": "Erfolgsrate (24h)"
+  },
+  "export": {
+    "format": "Format",
+    "from": "Von",
+    "to": "Bis",
+    "exportData": "Daten Exportieren",
+    "exporting": "Exportiere"
+  },
+  "ledgers": {
+    "title": "Hauptbücher",
+    "sequence": "Sequenz",
+    "successfulTx": "Erfolgreiche Tx",
+    "failedTx": "Fehlgeschlagene Tx",
+    "operations": "Operationen",
+    "closedAt": "Geschlossen Am",
+    "noData": "Noch keine Hauptbücher verfügbar. Der Indexer synchronisiert möglicherweise noch."
+  },
+  "transactions": {
+    "title": "Transaktionen",
+    "hash": "Hash",
+    "status": "Status",
+    "ledger": "Hauptbuch",
+    "sourceAccount": "Quellkonto",
+    "fee": "Gebühr",
+    "operations": "Operationen",
+    "createdAt": "Erstellt Am",
+    "noData": "Noch keine Transaktionen verfügbar. Der Indexer synchronisiert möglicherweise noch.",
+    "success": "Erfolg",
+    "failed": "Fehlgeschlagen"
+  },
+  "pagination": {
+    "itemsPerPage": "Elemente pro Seite",
+    "showing": "Zeige {{current}} von {{total}}",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "switchToPageNav": "Zur Seitennavigation wechseln",
+    "enableInfiniteScroll": "Endloses Scrollen aktivieren"
+  },
+  "chart": {
+    "transactionVolume24h": "Transaktionsvolumen (24h)",
+    "loading": "Lade Transaktionsdiagramm",
+    "noData": "Noch keine Daten verfügbar. Der Indexer synchronisiert möglicherweise noch.",
+    "totalTxs": "Gesamte txs",
+    "avgFee": "Durchschn. Gebühr",
+    "successRate": "Erfolgsrate",
+    "autoRefresh": "automatische Aktualisierung alle 30s",
+    "updating": "Aktualisiere…",
+    "refreshChart": "Diagramm aktualisieren"
+  }
+}

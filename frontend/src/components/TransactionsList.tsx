@@ -4,10 +4,11 @@
  * Displays a paginated list of transactions using cursor-based pagination
  * from the GraphQL API.
  */
-import { useQuery } from "@apollo/client";
-import { TRANSACTIONS_QUERY } from "../graphql/queries";
-import { Pagination, PageInfo } from "./Pagination";
-import { useState } from "react";
+import { useQuery } from '@apollo/client';
+import { TRANSACTIONS_QUERY } from '../graphql/queries';
+import { Pagination, PageInfo } from './Pagination';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface TransactionEdge {
   cursor: string;
@@ -32,20 +33,18 @@ interface TransactionsData {
 }
 
 export function TransactionsList() {
+  const { t, i18n } = useTranslation();
   const [pageSize, setPageSize] = useState(25);
   const [after, setAfter] = useState<string | null>(null);
   const [previousCursors, setPreviousCursors] = useState<string[]>([]);
 
-  const { data, loading, error, fetchMore } = useQuery<TransactionsData>(
-    TRANSACTIONS_QUERY,
-    {
-      variables: {
-        first: pageSize,
-        after,
-      },
-      notifyOnNetworkStatusChange: true,
-    }
-  );
+  const { data, loading, error } = useQuery<TransactionsData>(TRANSACTIONS_QUERY, {
+    variables: {
+      first: pageSize,
+      after,
+    },
+    notifyOnNetworkStatusChange: true,
+  });
 
   const transactions = data?.transactions.edges.map((edge) => edge.node) || [];
   const pageInfo = data?.transactions.pageInfo || { hasNextPage: false, endCursor: null };
@@ -59,12 +58,12 @@ export function TransactionsList() {
 
   const handleLoadNext = (cursor: string | null) => {
     if (cursor && pageInfo.hasNextPage) {
-      setPreviousCursors([...previousCursors, after || ""]);
+      setPreviousCursors([...previousCursors, after || '']);
       setAfter(cursor);
     }
   };
 
-  const handleLoadPrevious = (cursor: string | null) => {
+  const handleLoadPrevious = () => {
     if (previousCursors.length > 0) {
       const newPreviousCursors = previousCursors.slice(0, -1);
       setPreviousCursors(newPreviousCursors);
@@ -74,7 +73,7 @@ export function TransactionsList() {
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
-    return d.toLocaleString();
+    return d.toLocaleString(i18n.language);
   };
 
   const formatHash = (hash: string) => {
@@ -88,18 +87,18 @@ export function TransactionsList() {
   if (loading && !data) {
     return (
       <section className="card" aria-busy="true">
-        <h3 style={{ margin: "0 0 16px", fontSize: "16px", fontWeight: 700 }}>
-          Transactions
+        <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700 }}>
+          {t('transactions.title')}
         </h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {[0, 1, 2, 3, 4].map((i) => (
             <div
               key={i}
               style={{
-                padding: "12px",
-                background: "var(--color-skeleton)",
-                borderRadius: "8px",
-                height: "80px",
+                padding: '12px',
+                background: 'var(--color-skeleton)',
+                borderRadius: '8px',
+                height: '80px',
               }}
             />
           ))}
@@ -111,63 +110,103 @@ export function TransactionsList() {
   if (error && !data) {
     return (
       <section className="card" role="alert">
-        <h3 style={{ margin: "0 0 8px", fontSize: "16px", fontWeight: 700 }}>
-          Transactions
+        <h3 style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 700 }}>
+          {t('transactions.title')}
         </h3>
-        <p style={{ margin: 0, fontSize: "13px", color: "var(--color-error)" }}>
-          {error.message}
-        </p>
+        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-error)' }}>{error.message}</p>
       </section>
     );
   }
 
   return (
     <section className="card">
-      <h3 style={{ margin: "0 0 16px", fontSize: "16px", fontWeight: 700 }}>
-        Transactions
+      <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700 }}>
+        {t('transactions.title')}
       </h3>
 
       {transactions.length === 0 ? (
-        <p style={{ margin: 0, fontSize: "13px", color: "var(--color-text-muted)" }}>
-          No transactions available yet. The indexer may still be syncing.
+        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)' }}>
+          {t('transactions.noData')}
         </p>
       ) : (
         <>
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: 'auto' }}>
             <table
               style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: "13px",
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: '13px',
               }}
             >
               <thead>
                 <tr
                   style={{
-                    borderBottom: "2px solid var(--color-border-light)",
-                    textAlign: "left",
+                    borderBottom: '2px solid var(--color-border-light)',
+                    textAlign: 'left',
                   }}
                 >
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Hash
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('transactions.hash')}
                   </th>
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Status
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('transactions.status')}
                   </th>
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Ledger
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('transactions.ledger')}
                   </th>
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Source Account
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('transactions.sourceAccount')}
                   </th>
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Fee
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('transactions.fee')}
                   </th>
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Operations
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('transactions.operations')}
                   </th>
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Created At
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('transactions.createdAt')}
                   </th>
                 </tr>
               </thead>
@@ -176,39 +215,41 @@ export function TransactionsList() {
                   <tr
                     key={tx.id}
                     style={{
-                      borderBottom: "1px solid var(--color-border-light)",
+                      borderBottom: '1px solid var(--color-border-light)',
                     }}
                   >
-                    <td style={{ padding: "8px", fontFamily: "monospace" }}>
+                    <td style={{ padding: '8px', fontFamily: 'monospace' }}>
                       {formatHash(tx.hash)}
                     </td>
-                    <td style={{ padding: "8px" }}>
+                    <td style={{ padding: '8px' }}>
                       <span
                         style={{
-                          padding: "2px 8px",
-                          borderRadius: "4px",
-                          fontSize: "11px",
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
                           fontWeight: 600,
-                          background: tx.successful ? "var(--color-success-bg)" : "var(--color-error-bg)",
-                          color: tx.successful ? "var(--color-success)" : "var(--color-error)",
+                          background: tx.successful
+                            ? 'var(--color-success-bg)'
+                            : 'var(--color-error-bg)',
+                          color: tx.successful ? 'var(--color-success)' : 'var(--color-error)',
                         }}
                       >
-                        {tx.successful ? "Success" : "Failed"}
+                        {tx.successful ? t('transactions.success') : t('transactions.failed')}
                       </span>
                     </td>
-                    <td style={{ padding: "8px", fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ padding: '8px', fontVariantNumeric: 'tabular-nums' }}>
                       #{tx.ledger}
                     </td>
-                    <td style={{ padding: "8px", fontFamily: "monospace" }}>
+                    <td style={{ padding: '8px', fontFamily: 'monospace' }}>
                       {formatAccount(tx.sourceAccount)}
                     </td>
-                    <td style={{ padding: "8px", fontVariantNumeric: "tabular-nums" }}>
-                      {tx.feeCharged.toLocaleString()} str
+                    <td style={{ padding: '8px', fontVariantNumeric: 'tabular-nums' }}>
+                      {tx.feeCharged.toLocaleString(i18n.language)} str
                     </td>
-                    <td style={{ padding: "8px", fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ padding: '8px', fontVariantNumeric: 'tabular-nums' }}>
                       {tx.operationCount}
                     </td>
-                    <td style={{ padding: "8px", color: "var(--color-text-secondary)" }}>
+                    <td style={{ padding: '8px', color: 'var(--color-text-secondary)' }}>
                       {formatDate(tx.createdAt)}
                     </td>
                   </tr>

@@ -20,10 +20,10 @@ import { configLogger } from "./logger.js";
 // Types
 // ---------------------------------------------------------------------------
 
-export type StellarNetwork = "testnet" | "mainnet" | "futurenet";
+export type StellarNetwork = "testnet" | "mainnet";
 
 export interface IndexerConfig {
-  /** Stellar network to index ("testnet" | "mainnet" | "futurenet") */
+  /** Stellar network to index ("testnet" | "mainnet") */
   network: StellarNetwork;
 
   /** PostgreSQL connection string – required for DB writes */
@@ -68,7 +68,7 @@ interface ValidationError {
 }
 
 function validateNetwork(value: string | undefined): StellarNetwork {
-  const valid: StellarNetwork[] = ["testnet", "mainnet", "futurenet"];
+  const valid: StellarNetwork[] = ["testnet", "mainnet"];
   const v = (value ?? "testnet").toLowerCase() as StellarNetwork;
   if (!valid.includes(v)) {
     throw new Error(
