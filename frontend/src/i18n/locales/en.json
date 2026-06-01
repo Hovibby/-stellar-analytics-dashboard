@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "Stellar Analytics Dashboard",
+    "network": "Network",
+    "latestLedger": "Latest ledger",
+    "refreshing": "Refreshing…",
+    "retry": "Retry",
+    "switchToDarkMode": "Switch to dark mode",
+    "switchToLightMode": "Switch to light mode"
+  },
+  "tabs": {
+    "dashboard": "Dashboard",
+    "ledgers": "Ledgers",
+    "transactions": "Transactions"
+  },
+  "errors": {
+    "failedToLoad": "Failed to load dashboard data",
+    "couldNotRefresh": "Could not refresh data",
+    "exportFailed": "Export failed. Please try again."
+  },
+  "metrics": {
+    "totalLedgers": "Total Ledgers",
+    "totalTransactions": "Total Transactions",
+    "totalOperations": "Total Operations",
+    "totalAccounts": "Total Accounts",
+    "activeAccounts24h": "Active Accounts (24h)",
+    "volume24h": "Volume (24h)",
+    "avgFee24h": "Avg Fee (24h)",
+    "successRate24h": "Success Rate (24h)"
+  },
+  "export": {
+    "format": "Format",
+    "from": "From",
+    "to": "To",
+    "exportData": "Export Data",
+    "exporting": "Exporting"
+  },
+  "ledgers": {
+    "title": "Ledgers",
+    "sequence": "Sequence",
+    "successfulTx": "Successful Tx",
+    "failedTx": "Failed Tx",
+    "operations": "Operations",
+    "closedAt": "Closed At",
+    "noData": "No ledgers available yet. The indexer may still be syncing."
+  },
+  "transactions": {
+    "title": "Transactions",
+    "hash": "Hash",
+    "status": "Status",
+    "ledger": "Ledger",
+    "sourceAccount": "Source Account",
+    "fee": "Fee",
+    "operations": "Operations",
+    "createdAt": "Created At",
+    "noData": "No transactions available yet. The indexer may still be syncing.",
+    "success": "Success",
+    "failed": "Failed"
+  },
+  "pagination": {
+    "itemsPerPage": "Items per page",
+    "showing": "Showing {{current}} of {{total}}",
+    "previous": "Previous",
+    "next": "Next",
+    "switchToPageNav": "Switch to Page Navigation",
+    "enableInfiniteScroll": "Enable Infinite Scroll"
+  },
+  "chart": {
+    "transactionVolume24h": "Transaction Volume (24h)",
+    "loading": "Loading transaction chart",
+    "noData": "No data available yet. The indexer may still be syncing.",
+    "totalTxs": "Total txs",
+    "avgFee": "Avg fee",
+    "successRate": "Success rate",
+    "autoRefresh": "auto-refreshes every 30s",
+    "updating": "Updating…",
+    "refreshChart": "Refresh chart"
+  }
+}

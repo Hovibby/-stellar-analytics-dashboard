@@ -12,7 +12,7 @@ import {
 } from "./transformer.js";
 import { writeIngestedData, type BatchMetrics } from "./loader.js";
 import { broadcastRealtimeUpdate } from "./websocket.js";
-import { validateConfig } from "./config.js";
+import { validateConfig, type StellarNetwork } from "./config.js";
 import { indexerLogger } from "./logger.js";
 import { initializeAlertService, alertService } from "./alerting/index.js";
 

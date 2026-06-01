@@ -23,16 +23,21 @@ export class DatabaseConnection {
       ],
     });
 
-    // Make pool size configurable via environment variables (Issue #29)
+    // Database connection pooling configuration (Issue #137)
     const maxConnections = parseInt(process.env.DB_POOL_MAX || process.env.DB_MAX_CONNECTIONS || '20', 10);
+    const minConnections = parseInt(process.env.DB_POOL_MIN || '5', 10);
     const idleTimeout = parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '30000', 10);
     const connectionTimeout = parseInt(process.env.DB_POOL_CONNECTION_TIMEOUT || '2000', 10);
+    const maxUses = parseInt(process.env.DB_POOL_MAX_USES || '10000', 10);
 
     this.pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: maxConnections,
+      min: minConnections,
       idleTimeoutMillis: idleTimeout,
       connectionTimeoutMillis: connectionTimeout,
+      maxUses: maxUses,
+      keepalive: true,
     });
 
     this.redis = createClient({
@@ -67,6 +72,7 @@ export class DatabaseConnection {
         total: this.pool.totalCount,
         idle: this.pool.idleCount,
         waiting: this.pool.waitingCount,
+        min: this.pool.options.min || 0,
       };
       this.logger.info('Database pool stats:', poolStats);
     }, 30000); // Log every 30 seconds
@@ -90,12 +96,14 @@ export class DatabaseConnection {
     idle: number;
     waiting: number;
     max: number;
+    min: number;
   } {
     return {
       total: this.pool.totalCount,
       idle: this.pool.idleCount,
       waiting: this.pool.waitingCount,
-      max: this.pool.options.max,
+      max: this.pool.options.max || 0,
+      min: this.pool.options.min || 0,
     };
   }
 

@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "Stellar アナリティクス ダッシュボード",
+    "network": "ネットワーク",
+    "latestLedger": "最新のレジャー",
+    "refreshing": "更新中…",
+    "retry": "再試行",
+    "switchToDarkMode": "ダークモードに切り替え",
+    "switchToLightMode": "ライトモードに切り替え"
+  },
+  "tabs": {
+    "dashboard": "ダッシュボード",
+    "ledgers": "レジャー",
+    "transactions": "トランザクション"
+  },
+  "errors": {
+    "failedToLoad": "ダッシュボードデータの読み込みに失敗しました",
+    "couldNotRefresh": "データを更新できませんでした",
+    "exportFailed": "エクスポートに失敗しました。もう一度お試しください。"
+  },
+  "metrics": {
+    "totalLedgers": "総レジャー数",
+    "totalTransactions": "総トランザクション数",
+    "totalOperations": "総オペレーション数",
+    "totalAccounts": "総アカウント数",
+    "activeAccounts24h": "アクティブアカウント（24時間）",
+    "volume24h": "取引量（24時間）",
+    "avgFee24h": "平均手数料（24時間）",
+    "successRate24h": "成功率（24時間）"
+  },
+  "export": {
+    "format": "形式",
+    "from": "開始",
+    "to": "終了",
+    "exportData": "データをエクスポート",
+    "exporting": "エクスポート中"
+  },
+  "ledgers": {
+    "title": "レジャー",
+    "sequence": "シーケンス",
+    "successfulTx": "成功したトランザクション",
+    "failedTx": "失敗したトランザクション",
+    "operations": "オペレーション",
+    "closedAt": "クローズ日時",
+    "noData": "まだレジャーがありません。インデクサーがまだ同期中かもしれません。"
+  },
+  "transactions": {
+    "title": "トランザクション",
+    "hash": "ハッシュ",
+    "status": "ステータス",
+    "ledger": "レジャー",
+    "sourceAccount": "送信元アカウント",
+    "fee": "手数料",
+    "operations": "オペレーション",
+    "createdAt": "作成日時",
+    "noData": "まだトランザクションがありません。インデクサーがまだ同期中かもしれません。",
+    "success": "成功",
+    "failed": "失敗"
+  },
+  "pagination": {
+    "itemsPerPage": "1ページあたりの項目数",
+    "showing": "{{total}}件中{{current}}件表示",
+    "previous": "前へ",
+    "next": "次へ",
+    "switchToPageNav": "ページナビゲーションに切り替え",
+    "enableInfiniteScroll": "無限スクロールを有効にする"
+  },
+  "chart": {
+    "transactionVolume24h": "トランザクション量（24時間）",
+    "loading": "トランザクションチャートを読み込み中",
+    "noData": "まだデータがありません。インデクサーがまだ同期中かもしれません。",
+    "totalTxs": "総トランザクション数",
+    "avgFee": "平均手数料",
+    "successRate": "成功率",
+    "autoRefresh": "30秒ごとに自動更新",
+    "updating": "更新中…",
+    "refreshChart": "チャートを更新"
+  }
+}
