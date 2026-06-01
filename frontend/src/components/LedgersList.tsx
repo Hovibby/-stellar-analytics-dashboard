@@ -4,10 +4,11 @@
  * Displays a paginated list of ledgers using cursor-based pagination
  * from the GraphQL API.
  */
-import { useQuery } from "@apollo/client";
-import { LEDGERS_QUERY } from "../graphql/queries";
-import { Pagination, PageInfo } from "./Pagination";
-import { useState } from "react";
+import { useQuery } from '@apollo/client';
+import { LEDGERS_QUERY } from '../graphql/queries';
+import { Pagination, PageInfo } from './Pagination';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface LedgerEdge {
   cursor: string;
@@ -30,11 +31,12 @@ interface LedgersData {
 }
 
 export function LedgersList() {
+  const { t, i18n } = useTranslation();
   const [pageSize, setPageSize] = useState(25);
   const [after, setAfter] = useState<string | null>(null);
   const [previousCursors, setPreviousCursors] = useState<string[]>([]);
 
-  const { data, loading, error, fetchMore } = useQuery<LedgersData>(LEDGERS_QUERY, {
+  const { data, loading, error } = useQuery<LedgersData>(LEDGERS_QUERY, {
     variables: {
       first: pageSize,
       after,
@@ -54,12 +56,12 @@ export function LedgersList() {
 
   const handleLoadNext = (cursor: string | null) => {
     if (cursor && pageInfo.hasNextPage) {
-      setPreviousCursors([...previousCursors, after || ""]);
+      setPreviousCursors([...previousCursors, after || '']);
       setAfter(cursor);
     }
   };
 
-  const handleLoadPrevious = (cursor: string | null) => {
+  const handleLoadPrevious = () => {
     if (previousCursors.length > 0) {
       const newPreviousCursors = previousCursors.slice(0, -1);
       setPreviousCursors(newPreviousCursors);
@@ -69,24 +71,24 @@ export function LedgersList() {
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
-    return d.toLocaleString();
+    return d.toLocaleString(i18n.language);
   };
 
   if (loading && !data) {
     return (
       <section className="card" aria-busy="true">
-        <h3 style={{ margin: "0 0 16px", fontSize: "16px", fontWeight: 700 }}>
-          Ledgers
+        <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700 }}>
+          {t('ledgers.title')}
         </h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {[0, 1, 2, 3, 4].map((i) => (
             <div
               key={i}
               style={{
-                padding: "12px",
-                background: "var(--color-skeleton)",
-                borderRadius: "8px",
-                height: "80px",
+                padding: '12px',
+                background: 'var(--color-skeleton)',
+                borderRadius: '8px',
+                height: '80px',
               }}
             />
           ))}
@@ -98,57 +100,85 @@ export function LedgersList() {
   if (error && !data) {
     return (
       <section className="card" role="alert">
-        <h3 style={{ margin: "0 0 8px", fontSize: "16px", fontWeight: 700 }}>
-          Ledgers
+        <h3 style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 700 }}>
+          {t('ledgers.title')}
         </h3>
-        <p style={{ margin: 0, fontSize: "13px", color: "var(--color-error)" }}>
-          {error.message}
-        </p>
+        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-error)' }}>{error.message}</p>
       </section>
     );
   }
 
   return (
     <section className="card">
-      <h3 style={{ margin: "0 0 16px", fontSize: "16px", fontWeight: 700 }}>
-        Ledgers
+      <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700 }}>
+        {t('ledgers.title')}
       </h3>
 
       {ledgers.length === 0 ? (
-        <p style={{ margin: 0, fontSize: "13px", color: "var(--color-text-muted)" }}>
-          No ledgers available yet. The indexer may still be syncing.
+        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)' }}>
+          {t('ledgers.noData')}
         </p>
       ) : (
         <>
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: 'auto' }}>
             <table
               style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: "13px",
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: '13px',
               }}
             >
               <thead>
                 <tr
                   style={{
-                    borderBottom: "2px solid var(--color-border-light)",
-                    textAlign: "left",
+                    borderBottom: '2px solid var(--color-border-light)',
+                    textAlign: 'left',
                   }}
                 >
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Sequence
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('ledgers.sequence')}
                   </th>
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Successful Tx
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('ledgers.successfulTx')}
                   </th>
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Failed Tx
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('ledgers.failedTx')}
                   </th>
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Operations
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('ledgers.operations')}
                   </th>
-                  <th style={{ padding: "8px", fontWeight: 600, color: "var(--color-text-secondary)" }}>
-                    Closed At
+                  <th
+                    style={{
+                      padding: '8px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {t('ledgers.closedAt')}
                   </th>
                 </tr>
               </thead>
@@ -157,22 +187,22 @@ export function LedgersList() {
                   <tr
                     key={ledger.id}
                     style={{
-                      borderBottom: "1px solid var(--color-border-light)",
+                      borderBottom: '1px solid var(--color-border-light)',
                     }}
                   >
-                    <td style={{ padding: "8px", fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ padding: '8px', fontVariantNumeric: 'tabular-nums' }}>
                       #{ledger.sequence}
                     </td>
-                    <td style={{ padding: "8px", fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ padding: '8px', fontVariantNumeric: 'tabular-nums' }}>
                       {ledger.successfulTransactionCount.toLocaleString()}
                     </td>
-                    <td style={{ padding: "8px", fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ padding: '8px', fontVariantNumeric: 'tabular-nums' }}>
                       {ledger.failedTransactionCount.toLocaleString()}
                     </td>
-                    <td style={{ padding: "8px", fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ padding: '8px', fontVariantNumeric: 'tabular-nums' }}>
                       {ledger.operationCount.toLocaleString()}
                     </td>
-                    <td style={{ padding: "8px", color: "var(--color-text-secondary)" }}>
+                    <td style={{ padding: '8px', color: 'var(--color-text-secondary)' }}>
                       {formatDate(ledger.closedAt)}
                     </td>
                   </tr>

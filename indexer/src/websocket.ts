@@ -90,7 +90,7 @@ wss.on('connection', (ws, request) => {
     }
 
     if (!parsed || typeof parsed !== 'object' || !('type' in parsed)) {
-      websocketLogger.warn({ userId: clientState.userId, type: parsed?.type ?? 'unknown' }, 'Invalid message format');
+      websocketLogger.warn({ userId: clientState.userId, type: (parsed as any)?.type ?? 'unknown' }, 'Invalid message format');
       ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format – type field required' }));
       return;
     }

@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "Stellar 分析仪表板",
+    "network": "网络",
+    "latestLedger": "最新账本",
+    "refreshing": "刷新中…",
+    "retry": "重试",
+    "switchToDarkMode": "切换到深色模式",
+    "switchToLightMode": "切换到浅色模式"
+  },
+  "tabs": {
+    "dashboard": "仪表板",
+    "ledgers": "账本",
+    "transactions": "交易"
+  },
+  "errors": {
+    "failedToLoad": "加载仪表板数据失败",
+    "couldNotRefresh": "无法刷新数据",
+    "exportFailed": "导出失败。请重试。"
+  },
+  "metrics": {
+    "totalLedgers": "总账本数",
+    "totalTransactions": "总交易数",
+    "totalOperations": "总操作数",
+    "totalAccounts": "总账户数",
+    "activeAccounts24h": "活跃账户（24小时）",
+    "volume24h": "交易量（24小时）",
+    "avgFee24h": "平均费用（24小时）",
+    "successRate24h": "成功率（24小时）"
+  },
+  "export": {
+    "format": "格式",
+    "from": "从",
+    "to": "到",
+    "exportData": "导出数据",
+    "exporting": "导出中"
+  },
+  "ledgers": {
+    "title": "账本",
+    "sequence": "序列号",
+    "successfulTx": "成功交易",
+    "failedTx": "失败交易",
+    "operations": "操作",
+    "closedAt": "关闭时间",
+    "noData": "暂无账本可用。索引器可能仍在同步中。"
+  },
+  "transactions": {
+    "title": "交易",
+    "hash": "哈希",
+    "status": "状态",
+    "ledger": "账本",
+    "sourceAccount": "源账户",
+    "fee": "费用",
+    "operations": "操作",
+    "createdAt": "创建时间",
+    "noData": "暂无交易可用。索引器可能仍在同步中。",
+    "success": "成功",
+    "failed": "失败"
+  },
+  "pagination": {
+    "itemsPerPage": "每页项目数",
+    "showing": "显示 {{current}} / {{total}}",
+    "previous": "上一页",
+    "next": "下一页",
+    "switchToPageNav": "切换到页面导航",
+    "enableInfiniteScroll": "启用无限滚动"
+  },
+  "chart": {
+    "transactionVolume24h": "交易量（24小时）",
+    "loading": "正在加载交易图表",
+    "noData": "暂无数据可用。索引器可能仍在同步中。",
+    "totalTxs": "总交易数",
+    "avgFee": "平均费用",
+    "successRate": "成功率",
+    "autoRefresh": "每30秒自动刷新",
+    "updating": "更新中…",
+    "refreshChart": "刷新图表"
+  }
+}

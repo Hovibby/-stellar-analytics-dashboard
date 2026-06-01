@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -16,9 +17,10 @@ import { Login } from './pages/Login';
 
 function App() {
   return (
-    <Routes>
-      {/* Public routes */}
-      <Route path="/login" element={<Login />} />
+    <Suspense fallback={null}>
+      <Routes>
+        {/* Public routes */}
+        <Route path="/login" element={<Login />} />
 
       {/* Protected routes - require authentication */}
       <Route
@@ -40,9 +42,10 @@ function App() {
         <Route path="search" element={<ErrorBoundary><SearchPage /></ErrorBoundary>} />
       </Route>
 
-      {/* 404 - Not Found */}
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+        {/* 404 - Not Found */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
   );
 }
 

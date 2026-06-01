@@ -224,10 +224,10 @@ export function GlobalSearch() {
     const total = results.length;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setActiveIndex((i) => (i + 1) % total);
+      if (total > 0) setActiveIndex((i) => Math.min(i + 1, total - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setActiveIndex((i) => (i - 1 + total) % total);
+      if (total > 0) setActiveIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === 'Enter') {
       handleSubmit(e as any);
     } else if (e.key === 'Escape') {

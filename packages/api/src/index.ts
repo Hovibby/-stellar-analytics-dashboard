@@ -10,7 +10,6 @@ import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import winston from 'winston';
-import { verify } from 'jsonwebtoken';
 import depthLimit from 'graphql-depth-limit';
 
 import { typeDefs } from './schema/typeDefs';
@@ -160,6 +159,40 @@ class ApiServer {
       },
     });
     this.app.use('/graphql', limiter);
+
+    this.app.get('/health/live', (_req, res) => {
+      res.status(200).json({ status: 'alive', timestamp: new Date().toISOString() });
+    });
+
+    this.app.get('/health/ready', async (_req, res) => {
+      try {
+        const health: HealthCheckResult = await db.healthCheck();
+        const pgDown = health.postgres.status === 'error';
+        const redisDown = health.redis.status === 'error';
+
+        if (pgDown || redisDown) {
+          return res.status(503).json({
+            status: 'not_ready',
+            postgres: health.postgres.status,
+            redis: health.redis.status,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        res.status(200).json({
+          status: 'ready',
+          postgres: health.postgres.status,
+          redis: health.redis.status,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error: any) {
+        res.status(503).json({
+          status: 'not_ready',
+          timestamp: new Date().toISOString(),
+          error: error?.message ?? 'Readiness check failed',
+        });
+      }
+    });
 
     this.app.get('/health', async (_req, res) => {
       try {
@@ -340,28 +373,55 @@ class ApiServer {
         schema,
         context: async (ctx: any, msg: any, args: any) => {
           const connectionParams = ctx?.connectionParams || {};
-          const token = connectionParams?.token || msg?.payload?.headers?.authorization?.replace('Bearer ', '');
+          const authorization = connectionParams?.authorization || msg?.payload?.headers?.authorization;
+          const apiKey = connectionParams?.['x-api-key'] || msg?.payload?.headers?.['x-api-key'];
           
-          if (process.env.JWT_SECRET && token) {
-            try {
-              const user = verify(token, process.env.JWT_SECRET);
-              return { db, loaders: createLoaders(), logger: this.logger, user };
-            } catch (err) {
-              throw new Error('Invalid authentication token');
+          let user = null;
+          
+          // Try JWT token authentication
+          const token = authService.extractToken(authorization);
+          if (token) {
+            const payload = authService.verifyToken(token);
+            if (payload) {
+              user = {
+                id: payload.userId,
+                email: payload.email,
+                role: payload.role,
+              };
             }
           }
           
-          return { db, loaders: createLoaders(), logger: this.logger };
+          // Try API key authentication if JWT failed
+          if (!user && apiKey && authService.validateApiKey(apiKey)) {
+            user = { id: 'api-user', email: 'api@stellar-analytics', role: 'user' };
+          }
+          
+          return {
+            db,
+            loaders: createLoaders(),
+            logger: this.logger,
+            user,
+            authService,
+          };
         },
         onConnect: (ctx: any) => {
           const ip = ctx?.request?.socket?.remoteAddress || 'unknown';
+          const connectionParams = ctx?.connectionParams || {};
           
           if (!checkSubscriptionRateLimit(ip)) {
             throw new Error('Subscription rate limit exceeded');
           }
           
-          this.logger.info('WebSocket client connected', { ip });
-          return { ip, authenticated: !!ctx?.connectionParams?.token };
+          const hasToken = !!connectionParams?.token || !!connectionParams?.authorization;
+          const hasApiKey = !!connectionParams?.['x-api-key'];
+          const authenticated = hasToken || hasApiKey;
+          
+          this.logger.info('WebSocket client connected', { 
+            ip, 
+            authenticated,
+            authMethod: hasToken ? 'jwt' : hasApiKey ? 'api-key' : 'none',
+          });
+          return { ip, authenticated };
         },
         onSubscribe: (ctx: any, msg: any) => {
           const ip = ctx?.ip || 'unknown';

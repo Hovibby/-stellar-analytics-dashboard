@@ -136,8 +136,17 @@ export class DatabaseConnection {
     const client = await this.getClient();
     try {
       const result = await client.query(text, params);
-      recordQueryExecution(text, performance.now() - startedAt, result.rowCount, this.logger);
+      recordQueryExecution(text, performance.now() - startedAt, result.rowCount ?? undefined, this.logger);
       return result.rows;
+    } catch (error) {
+      const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
+      this.logger.error('db:query:error', {
+        sql: text.replace(/\s+/g, ' ').trim().slice(0, 200),
+        paramCount: params?.length ?? 0,
+        durationMs,
+        error,
+      });
+      throw error;
     } finally {
       client.release();
     }
@@ -187,9 +196,25 @@ export class DatabaseConnection {
     return result === 1;
   }
 
+  public async cacheDelPattern(pattern: string): Promise<number> {
+    const keys = await this.redis.keys(pattern);
+    if (keys.length === 0) {
+      return 0;
+    }
+    return await this.redis.del(keys);
+  }
+
+  public async cacheGetTTL(key: string): Promise<number> {
+    return await this.redis.ttl(key);
+  }
+
+  public async cacheRefresh(key: string, ttl: number): Promise<void> {
+    await this.redis.expire(key, ttl);
+  }
+
   // Cache monitoring
   public async getCacheStats(): Promise<{ keys: number; memory: string }> {
-    const keys = await this.redis.dbsize();
+    const keys = await this.redis.dbSize();
     const info = await this.redis.info('memory');
     return { keys, memory: info || 'unknown' };
   }
