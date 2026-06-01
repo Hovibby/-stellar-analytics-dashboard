@@ -14,8 +14,6 @@ module.exports = {
     '^.+\\.tsx?$': [
       tsJestPath,
       {
-        // Skip type-checking during test runs (types are verified by tsc separately).
-        // This avoids @types resolution issues in the pnpm virtual store.
         diagnostics: false,
         isolatedModules: true,
         tsconfig: {

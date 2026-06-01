@@ -15,7 +15,7 @@
     "test": "pnpm -r --if-present test",
     "prepare": "husky install",
     "commitlint": "commitlint --edit \"$1\"",
-    "test:ci": "pnpm --filter @stellar-analytics/api test && pnpm --filter @stellar-analytics/indexer test",
+    "test:ci": "pnpm --filter @stellar-analytics/api test && pnpm --filter @stellar-analytics/indexer test && pnpm --filter @stellar-analytics/frontend test:ci",
     "test:e2e": "pnpm --filter @stellar-analytics/e2e test",
     "test:e2e:ui": "pnpm --filter @stellar-analytics/e2e test:ui",
     "test:e2e:debug": "pnpm --filter @stellar-analytics/e2e test:debug",

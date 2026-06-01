@@ -7,7 +7,8 @@
  * - Infinite scroll option
  * - Reusable for any cursor-based paginated data
  */
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export interface PageInfo {
   hasNextPage: boolean;
@@ -26,7 +27,7 @@ export interface PaginationProps {
   /** Callback to load next page */
   onLoadNext: (cursor: string | null) => void;
   /** Callback to load previous page */
-  onLoadPrevious: (cursor: string | null) => void;
+  onLoadPrevious: () => void;
   /** Enable infinite scroll mode */
   enableInfiniteScroll?: boolean;
   /** Current cursor for navigation */
@@ -45,9 +46,9 @@ export function Pagination({
   onLoadNext,
   onLoadPrevious,
   enableInfiniteScroll = false,
-  currentCursor,
   previousCursors,
 }: PaginationProps) {
+  const { t } = useTranslation();
   const [isInfiniteScroll, setIsInfiniteScroll] = useState(enableInfiniteScroll);
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
@@ -76,8 +77,7 @@ export function Pagination({
   }, [isInfiniteScroll, pageInfo.hasNextPage, pageInfo.endCursor, onLoadNext]);
 
   const handlePrevious = () => {
-    const prevCursor = previousCursors[previousCursors.length - 2];
-    onLoadPrevious(prevCursor || null);
+    onLoadPrevious();
   };
 
   const handleNext = () => {
@@ -88,19 +88,26 @@ export function Pagination({
   if (isInfiniteScroll) {
     return (
       <>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <label style={{ fontSize: "13px", color: "var(--color-text-secondary)" }}>
-              Items per page:
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '16px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+              {t('pagination.itemsPerPage')}:
               <select
                 value={pageSize}
                 onChange={(e) => onPageSizeChange(Number(e.target.value))}
                 style={{
-                  marginLeft: "8px",
-                  padding: "4px 8px",
-                  borderRadius: "6px",
-                  border: "1px solid var(--color-border)",
-                  fontSize: "13px",
+                  marginLeft: '8px',
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--color-border)',
+                  fontSize: '13px',
                 }}
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
@@ -114,38 +121,38 @@ export function Pagination({
           <button
             onClick={() => setIsInfiniteScroll(false)}
             style={{
-              padding: "6px 12px",
-              borderRadius: "6px",
-              border: "1px solid var(--color-border)",
-              background: "var(--color-card-background)",
-              cursor: "pointer",
-              fontSize: "13px",
+              padding: '6px 12px',
+              borderRadius: '6px',
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-card-background)',
+              cursor: 'pointer',
+              fontSize: '13px',
             }}
           >
-            Switch to Page Navigation
+            {t('pagination.switchToPageNav')}
           </button>
         </div>
-        <div ref={loadMoreRef} style={{ height: "20px" }} />
+        <div ref={loadMoreRef} style={{ height: '20px' }} />
       </>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "16px" }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
       {/* Page size and mode toggle */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <label style={{ fontSize: "13px", color: "var(--color-text-secondary)" }}>
-            Items per page:
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <label style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+            {t('pagination.itemsPerPage')}:
             <select
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
               style={{
-                marginLeft: "8px",
-                padding: "4px 8px",
-                borderRadius: "6px",
-                border: "1px solid var(--color-border)",
-                fontSize: "13px",
+                marginLeft: '8px',
+                padding: '4px 8px',
+                borderRadius: '6px',
+                border: '1px solid var(--color-border)',
+                fontSize: '13px',
               }}
             >
               {PAGE_SIZE_OPTIONS.map((size) => (
@@ -155,45 +162,48 @@ export function Pagination({
               ))}
             </select>
           </label>
-          <span style={{ fontSize: "13px", color: "var(--color-text-secondary)" }}>
+          <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
             Showing {Math.min(currentPage * pageSize, totalCount)} of {totalCount.toLocaleString()}
           </span>
         </div>
         <button
           onClick={() => setIsInfiniteScroll(true)}
           style={{
-            padding: "6px 12px",
-            borderRadius: "6px",
-            border: "1px solid var(--color-border)",
-            background: "var(--color-card-background)",
-            cursor: "pointer",
-            fontSize: "13px",
+            padding: '6px 12px',
+            borderRadius: '6px',
+            border: '1px solid var(--color-border)',
+            background: 'var(--color-card-background)',
+            cursor: 'pointer',
+            fontSize: '13px',
           }}
         >
-          Enable Infinite Scroll
+          {t('pagination.enableInfiniteScroll')}
         </button>
       </div>
 
       {/* Navigation controls */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
         <button
           onClick={handlePrevious}
           disabled={currentPage === 1}
           style={{
-            padding: "6px 12px",
-            borderRadius: "6px",
-            border: currentPage === 1 ? "1px solid var(--color-border-light)" : "1px solid var(--color-border)",
-            background: currentPage === 1 ? "var(--color-hover)" : "var(--color-card-background)",
-            cursor: currentPage === 1 ? "not-allowed" : "pointer",
-            fontSize: "13px",
-            color: currentPage === 1 ? "var(--color-text-muted)" : "var(--color-text-primary)",
+            padding: '6px 12px',
+            borderRadius: '6px',
+            border:
+              currentPage === 1
+                ? '1px solid var(--color-border-light)'
+                : '1px solid var(--color-border)',
+            background: currentPage === 1 ? 'var(--color-hover)' : 'var(--color-card-background)',
+            cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+            fontSize: '13px',
+            color: currentPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
           }}
         >
-          Previous
+          {t('pagination.previous')}
         </button>
 
         {/* Page numbers */}
-        <div style={{ display: "flex", gap: "4px" }}>
+        <div style={{ display: 'flex', gap: '4px' }}>
           {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
             let pageNum;
             if (totalPages <= 5) {
@@ -218,14 +228,20 @@ export function Pagination({
                 }}
                 disabled={pageNum === currentPage}
                 style={{
-                  padding: "6px 10px",
-                  borderRadius: "6px",
-                  border: pageNum === currentPage ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
-                  background: pageNum === currentPage ? "var(--color-primary)" : "var(--color-card-background)",
-                  cursor: pageNum === currentPage ? "default" : "pointer",
-                  fontSize: "13px",
-                  color: pageNum === currentPage ? "#fff" : "var(--color-text-primary)",
-                  minWidth: "32px",
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border:
+                    pageNum === currentPage
+                      ? '1px solid var(--color-primary)'
+                      : '1px solid var(--color-border)',
+                  background:
+                    pageNum === currentPage
+                      ? 'var(--color-primary)'
+                      : 'var(--color-card-background)',
+                  cursor: pageNum === currentPage ? 'default' : 'pointer',
+                  fontSize: '13px',
+                  color: pageNum === currentPage ? '#fff' : 'var(--color-text-primary)',
+                  minWidth: '32px',
                 }}
               >
                 {pageNum}
@@ -238,16 +254,20 @@ export function Pagination({
           onClick={handleNext}
           disabled={!pageInfo.hasNextPage}
           style={{
-            padding: "6px 12px",
-            borderRadius: "6px",
-            border: !pageInfo.hasNextPage ? "1px solid var(--color-border-light)" : "1px solid var(--color-border)",
-            background: !pageInfo.hasNextPage ? "var(--color-hover)" : "var(--color-card-background)",
-            cursor: !pageInfo.hasNextPage ? "not-allowed" : "pointer",
-            fontSize: "13px",
-            color: !pageInfo.hasNextPage ? "var(--color-text-muted)" : "var(--color-text-primary)",
+            padding: '6px 12px',
+            borderRadius: '6px',
+            border: !pageInfo.hasNextPage
+              ? '1px solid var(--color-border-light)'
+              : '1px solid var(--color-border)',
+            background: !pageInfo.hasNextPage
+              ? 'var(--color-hover)'
+              : 'var(--color-card-background)',
+            cursor: !pageInfo.hasNextPage ? 'not-allowed' : 'pointer',
+            fontSize: '13px',
+            color: !pageInfo.hasNextPage ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
           }}
         >
-          Next
+          {t('pagination.next')}
         </button>
       </div>
     </div>
