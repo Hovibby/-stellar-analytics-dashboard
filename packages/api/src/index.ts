@@ -29,6 +29,70 @@ import { authService } from './services/auth';
 
 dotenv.config();
 
+const MAX_QUERY_COMPLEXITY = 1000;
+
+// List field names that resolve to paginated collections — cost scaled by requested size
+const LIST_FIELD_NAMES = new Set([
+  'transactions', 'ledgers', 'accounts', 'operations', 'assets',
+  'edges', 'nodes', 'networkMetrics', 'assetMetrics',
+]);
+
+function calculateQueryComplexity(document: any, variables?: Record<string, any>): number {
+  let complexity = 0;
+
+  function scoreSelections(selections: any[], multiplier: number): void {
+    for (const selection of selections) {
+      if (selection.kind !== 'Field') continue;
+
+      const fieldName: string = selection.name.value;
+      if (fieldName.startsWith('__')) continue;
+
+      let fieldMultiplier = multiplier;
+
+      if (LIST_FIELD_NAMES.has(fieldName)) {
+        let listSize = 10;
+
+        // Extract list size from inline `pagination: { first: N }` argument
+        const paginationArg = selection.arguments?.find((a: any) => a.name.value === 'pagination');
+        if (paginationArg?.value?.fields) {
+          const firstField = paginationArg.value.fields.find((f: any) => f.name.value === 'first');
+          if (firstField?.value?.kind === 'IntValue') {
+            listSize = parseInt(firstField.value.value, 10);
+          } else if (firstField?.value?.kind === 'Variable' && variables) {
+            const v = variables[firstField.value.name.value];
+            if (typeof v === 'number') listSize = v;
+          }
+        }
+
+        // Also check a bare `first` argument
+        const firstArg = selection.arguments?.find((a: any) => a.name.value === 'first');
+        if (firstArg?.value?.kind === 'IntValue') {
+          listSize = parseInt(firstArg.value.value, 10);
+        } else if (firstArg?.value?.kind === 'Variable' && variables) {
+          const v = variables[firstArg.value.name.value];
+          if (typeof v === 'number') listSize = v;
+        }
+
+        fieldMultiplier = multiplier * Math.max(1, listSize);
+      }
+
+      complexity += fieldMultiplier;
+
+      if (selection.selectionSet?.selections) {
+        scoreSelections(selection.selectionSet.selections, fieldMultiplier);
+      }
+    }
+  }
+
+  for (const def of document.definitions ?? []) {
+    if (def.kind === 'OperationDefinition' && def.selectionSet?.selections) {
+      scoreSelections(def.selectionSet.selections, 1);
+    }
+  }
+
+  return complexity;
+}
+
 class ApiServer {
   private apolloServer!: ApolloServer;
   private app: express.Application;
@@ -143,11 +207,22 @@ class ApiServer {
               const operation = ctx.request.operationName || 'anonymous';
               const user = ctx.context.user;
               const userId = user ? user.id : 'anonymous';
+
+              // Query complexity analysis
+              const complexity = calculateQueryComplexity(ctx.document, ctx.request.variables);
               logger.info('GraphQL operation resolved', {
                 operation,
                 userId,
+                complexity,
                 variables: ctx.request.variables,
               });
+
+              if (complexity > MAX_QUERY_COMPLEXITY) {
+                throw new Error(
+                  `Query complexity ${complexity} exceeds the maximum allowed complexity of ${MAX_QUERY_COMPLEXITY}. ` +
+                  `Reduce the number of requested fields or lower the pagination limit.`
+                );
+              }
             },
             didEncounterErrors(ctx: any) {
               logger.error('GraphQL operation errors', {
