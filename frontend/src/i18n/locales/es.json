@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "Panel de Análisis Stellar",
+    "network": "Red",
+    "latestLedger": "Último libro",
+    "refreshing": "Actualizando…",
+    "retry": "Reintentar",
+    "switchToDarkMode": "Cambiar a modo oscuro",
+    "switchToLightMode": "Cambiar a modo claro"
+  },
+  "tabs": {
+    "dashboard": "Panel",
+    "ledgers": "Libros",
+    "transactions": "Transacciones"
+  },
+  "errors": {
+    "failedToLoad": "Error al cargar datos del panel",
+    "couldNotRefresh": "No se pudieron actualizar los datos",
+    "exportFailed": "Error al exportar. Por favor, inténtelo de nuevo."
+  },
+  "metrics": {
+    "totalLedgers": "Total de Libros",
+    "totalTransactions": "Total de Transacciones",
+    "totalOperations": "Total de Operaciones",
+    "totalAccounts": "Total de Cuentas",
+    "activeAccounts24h": "Cuentas Activas (24h)",
+    "volume24h": "Volumen (24h)",
+    "avgFee24h": "Tarifa Promedio (24h)",
+    "successRate24h": "Tasa de Éxito (24h)"
+  },
+  "export": {
+    "format": "Formato",
+    "from": "Desde",
+    "to": "Hasta",
+    "exportData": "Exportar Datos",
+    "exporting": "Exportando"
+  },
+  "ledgers": {
+    "title": "Libros",
+    "sequence": "Secuencia",
+    "successfulTx": "Tx Exitosas",
+    "failedTx": "Tx Fallidas",
+    "operations": "Operaciones",
+    "closedAt": "Cerrado En",
+    "noData": "No hay libros disponibles aún. El indexador puede estar sincronizándose."
+  },
+  "transactions": {
+    "title": "Transacciones",
+    "hash": "Hash",
+    "status": "Estado",
+    "ledger": "Libro",
+    "sourceAccount": "Cuenta Origen",
+    "fee": "Tarifa",
+    "operations": "Operaciones",
+    "createdAt": "Creado En",
+    "noData": "No hay transacciones disponibles aún. El indexador puede estar sincronizándose.",
+    "success": "Éxito",
+    "failed": "Fallida"
+  },
+  "pagination": {
+    "itemsPerPage": "Elementos por página",
+    "showing": "Mostrando {{current}} de {{total}}",
+    "previous": "Anterior",
+    "next": "Siguiente",
+    "switchToPageNav": "Cambiar a Navegación por Páginas",
+    "enableInfiniteScroll": "Habilitar Desplazamiento Infinito"
+  },
+  "chart": {
+    "transactionVolume24h": "Volumen de Transacciones (24h)",
+    "loading": "Cargando gráfico de transacciones",
+    "noData": "No hay datos disponibles aún. El indexador puede estar sincronizándose.",
+    "totalTxs": "Total de txs",
+    "avgFee": "Tarifa prom",
+    "successRate": "Tasa de éxito",
+    "autoRefresh": "se actualiza automáticamente cada 30s",
+    "updating": "Actualizando…",
+    "refreshChart": "Actualizar gráfico"
+  }
+}

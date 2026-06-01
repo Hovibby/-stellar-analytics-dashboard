@@ -9,8 +9,7 @@
     "esModuleInterop": true,
     "baseUrl": ".",
     "paths": {
-      "@stellar-analytics/shared": ["shared/src/index.ts"],
-      "@stellar-analytics/shared/*": ["shared/src/*"]
+      "@stellar-analytics/shared": ["./packages/shared/dist/index"]
     }
   }
 }

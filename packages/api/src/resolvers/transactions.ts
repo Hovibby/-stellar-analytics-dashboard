@@ -4,7 +4,7 @@ import { mapOperation, mapTransaction } from '../utils/mappers';
 import type { ApiLoaders } from '../loaders';
 import { ValidationService } from '../services/validation';
 
-interface ResolverContext {
+export interface ResolverContext {
   loaders: ApiLoaders;
 }
 
