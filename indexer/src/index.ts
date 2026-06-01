@@ -11,9 +11,8 @@ import {
 } from "./transformer.js";
 import { writeIngestedData, type BatchMetrics } from "./loader.js";
 import { broadcastRealtimeUpdate } from "./websocket.js";
-import { validateConfig } from "./config.js";
+import { validateConfig, type StellarNetwork } from "./config.js";
 import { indexerLogger } from "./logger.js";
-import http from "http";
 
 // ---------------------------------------------------------------------------
 // Validate configuration on startup – fails fast with clear error messages
@@ -26,13 +25,14 @@ const pool = config.databaseUrl
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-const network = (process.env.STELLAR_NETWORK ?? "testnet") as StellarNetwork;
-const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS ?? "5000", 10);
-const BATCH_PERF_WARN_MS = parseInt(process.env.BATCH_PERF_WARN_MS ?? "2000", 10);
+const STELLAR_NETWORKS = {
+  testnet: { horizonUrl: "https://horizon-testnet.stellar.org" },
+  mainnet: { horizonUrl: "https://horizon.stellar.org" },
+} as const;
 
-const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL })
-  : null;
+const network = config.network;
+const POLL_INTERVAL_MS = config.pollIntervalMs;
+const BATCH_PERF_WARN_MS = parseInt(process.env.BATCH_PERF_WARN_MS ?? "2000", 10);
 
 // ── State tracking (for health check — issue #42) ─────────────────────────────
 

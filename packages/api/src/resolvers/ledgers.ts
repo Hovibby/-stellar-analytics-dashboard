@@ -15,7 +15,7 @@ export const ledgerResolvers = {
       },
       context: any,
       info: GraphQLResolveInfo
-    ): Promise<Connection<any>> => {
+    ): Promise<Connection> => {
       const { first = 20, after, before } = args.pagination || {};
 
       // Issue #31 – Validate pagination with comprehensive checks
@@ -85,7 +85,7 @@ export const ledgerResolvers = {
       const totalCount = parseInt(countResult.total);
 
       // Create edges
-      const edges: Edge<any>[] = ledgers.map((ledger) => ({
+      const edges: Edge[] = ledgers.map((ledger) => ({
         cursor: ledger.sequence.toString(),
         node: mapLedger(ledger),
       }));

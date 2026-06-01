@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend unit tests with coverage
+        run: pnpm --filter @stellar-analytics/frontend test:ci
+        env:
+          CI: true
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: packages/frontend/coverage/
+          retention-days: 14
+
+  e2e-tests:
+    name: E2E Tests
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: stellar_analytics_test
+          POSTGRES_USER: stellar_user
+          POSTGRES_PASSWORD: stellar_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @stellar-analytics/e2e exec playwright install --with-deps
+
+      - name: Build packages
+        run: pnpm build
+        env:
+          CI: true
+
+      - name: Start services
+        run: |
+          pnpm --filter @stellar-analytics/api dev &
+          pnpm --filter @stellar-analytics/frontend dev &
+          sleep 10
+        env:
+          DATABASE_URL: postgres://stellar_user:stellar_password@localhost:5432/stellar_analytics_test
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: test
+
+      - name: Run E2E tests
+        run: pnpm --filter @stellar-analytics/e2e test:ci
+        env:
+          DATABASE_URL: postgres://stellar_user:stellar_password@localhost:5432/stellar_analytics_test
+          REDIS_URL: redis://localhost:6379
+          BASE_URL: http://localhost:5173
+          CI: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: |
+            packages/e2e/test-results/
+            packages/e2e/playwright-report/
+          retention-days: 14
+
+      - name: Publish test results
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: |
+            packages/e2e/test-results/junit.xml
+          check_name: E2E Test Results
+          comment_mode: always
+
+      - name: Comment PR with test results
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const junitPath = 'packages/e2e/test-results/junit.xml';
+            if (fs.existsSync(junitPath)) {
+              const xml = fs.readFileSync(junitPath, 'utf8');
+              const tests = (xml.match(/tests="(\d+)"/) || ['','?'])[1];
+              const failures = (xml.match(/failures="(\d+)"/) || ['','0'])[1];
+              const errors = (xml.match(/errors="(\d+)"/) || ['','0'])[1];
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## E2E Test Results\n- ✅ Tests Run: ${tests}\n- ❌ Failures: ${failures}\n- ⚠️ Errors: ${errors}`,
+              });
+            }
