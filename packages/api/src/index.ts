@@ -96,6 +96,40 @@ class ApiServer {
     });
     this.app.use('/graphql', limiter);
 
+    this.app.get('/health/live', (_req, res) => {
+      res.status(200).json({ status: 'alive', timestamp: new Date().toISOString() });
+    });
+
+    this.app.get('/health/ready', async (_req, res) => {
+      try {
+        const health: HealthCheckResult = await db.healthCheck();
+        const pgDown = health.postgres.status === 'error';
+        const redisDown = health.redis.status === 'error';
+
+        if (pgDown || redisDown) {
+          return res.status(503).json({
+            status: 'not_ready',
+            postgres: health.postgres.status,
+            redis: health.redis.status,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        res.status(200).json({
+          status: 'ready',
+          postgres: health.postgres.status,
+          redis: health.redis.status,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error: any) {
+        res.status(503).json({
+          status: 'not_ready',
+          timestamp: new Date().toISOString(),
+          error: error?.message ?? 'Readiness check failed',
+        });
+      }
+    });
+
     this.app.get('/health', async (_req, res) => {
       try {
         const health: HealthCheckResult = await db.healthCheck();
