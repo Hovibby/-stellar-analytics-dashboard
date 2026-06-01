@@ -11,12 +11,18 @@
  *   - indexer_errors_total                     (counter, labelled by type)
  *   - indexer_validation_failures_total        (counter, labelled by entity)
  *   - indexer_idempotency_skips_total          (counter)
+ *   - indexer_retries_total                    (counter, labelled by operation)
+ *   - indexer_dlq_enqueued_total               (counter)
  *   - indexer_cycle_duration_seconds           (histogram)
  *   - indexer_db_write_duration_seconds        (histogram, labelled by table)
  *   - indexer_horizon_request_duration_seconds (histogram, labelled by endpoint)
+ *   - indexer_entity_processing_duration_seconds (histogram, labelled by entity)
+ *   - indexer_batch_size                       (histogram, labelled by type)
  *   - indexer_circuit_breaker_state            (gauge: 0=CLOSED,1=HALF_OPEN,2=OPEN)
  *   - indexer_queue_depth                      (gauge)
  *   - indexer_last_processed_ledger_sequence   (gauge)
+ *   - indexer_backfill_progress                (gauge)
+ *   - indexer_dlq_depth                        (gauge)
  */
 
 import {
@@ -39,16 +45,28 @@ export class IndexerMetrics {
   readonly validationFailures: Counter<string>;
   readonly idempotencySkips: Counter<string>;
   readonly websocketReconnections: Counter<string>;
+  /** Retry attempts per operation type (e.g. fetch_ledger, db_write) */
+  readonly retriesTotal: Counter<string>;
+  /** Items enqueued to the dead letter queue */
+  readonly dlqEnqueued: Counter<string>;
 
   // Histograms
   readonly cycleDuration: Histogram<string>;
   readonly dbWriteDuration: Histogram<string>;
   readonly horizonRequestDuration: Histogram<string>;
+  /** Per-entity processing latency (ledger | transaction | operation) */
+  readonly entityProcessingDuration: Histogram<string>;
+  /** Number of items in each processing batch */
+  readonly batchSize: Histogram<string>;
 
   // Gauges
   readonly circuitBreakerState: Gauge<string>;
   readonly queueDepth: Gauge<string>;
   readonly lastProcessedLedger: Gauge<string>;
+  /** Backfill progress: 0–100 (percentage of target range completed) */
+  readonly backfillProgress: Gauge<string>;
+  /** Current number of items sitting in the dead letter queue */
+  readonly dlqDepth: Gauge<string>;
 
   private constructor() {
     this.registry = new Registry();
@@ -104,6 +122,19 @@ export class IndexerMetrics {
       registers: [this.registry],
     });
 
+    this.retriesTotal = new Counter({
+      name: 'indexer_retries_total',
+      help: 'Total number of retry attempts per operation type',
+      labelNames: ['operation'] as const,
+      registers: [this.registry],
+    });
+
+    this.dlqEnqueued = new Counter({
+      name: 'indexer_dlq_enqueued_total',
+      help: 'Total number of items enqueued to the dead letter queue',
+      registers: [this.registry],
+    });
+
     // -----------------------------------------------------------------------
     // Histograms
     // -----------------------------------------------------------------------
@@ -130,6 +161,22 @@ export class IndexerMetrics {
       registers: [this.registry],
     });
 
+    this.entityProcessingDuration = new Histogram({
+      name: 'indexer_entity_processing_duration_seconds',
+      help: 'End-to-end processing latency per entity type (ledger, transaction, operation)',
+      labelNames: ['entity'] as const,
+      buckets: [0.005, 0.01, 0.05, 0.1, 0.5, 1, 2],
+      registers: [this.registry],
+    });
+
+    this.batchSize = new Histogram({
+      name: 'indexer_batch_size',
+      help: 'Number of items in each processing batch',
+      labelNames: ['type'] as const,
+      buckets: [1, 5, 10, 25, 50, 100, 200],
+      registers: [this.registry],
+    });
+
     // -----------------------------------------------------------------------
     // Gauges
     // -----------------------------------------------------------------------
@@ -150,6 +197,18 @@ export class IndexerMetrics {
       help: 'Sequence number of the last successfully processed ledger',
       registers: [this.registry],
     });
+
+    this.backfillProgress = new Gauge({
+      name: 'indexer_backfill_progress',
+      help: 'Backfill completion percentage (0–100)',
+      registers: [this.registry],
+    });
+
+    this.dlqDepth = new Gauge({
+      name: 'indexer_dlq_depth',
+      help: 'Current number of items in the dead letter queue',
+      registers: [this.registry],
+    });
   }
 
   static getInstance(): IndexerMetrics {
@@ -167,6 +226,16 @@ export class IndexerMetrics {
   setCircuitBreakerState(state: 'CLOSED' | 'HALF_OPEN' | 'OPEN'): void {
     const stateMap = { CLOSED: 0, HALF_OPEN: 1, OPEN: 2 } as const;
     this.circuitBreakerState.set(stateMap[state]);
+  }
+
+  /**
+   * Update backfill progress gauge.
+   * @param processed Number of ledgers processed so far in the backfill range.
+   * @param total     Total ledgers in the backfill range.
+   */
+  setBackfillProgress(processed: number, total: number): void {
+    if (total <= 0) return;
+    this.backfillProgress.set(Math.min(100, (processed / total) * 100));
   }
 
   /** Return the full Prometheus text exposition. */
