@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Dashboard } from '@/pages/Dashboard';
 import { Network } from '@/pages/Network';
 import { Accounts } from '@/pages/Accounts';
@@ -28,15 +29,15 @@ function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Dashboard />} />
-        <Route path="network" element={<Network />} />
-        <Route path="accounts" element={<Accounts />} />
-        <Route path="accounts/:accountId" element={<AccountDetail />} />
-        <Route path="transactions" element={<Transactions />} />
-        <Route path="transactions/:hash" element={<TransactionDetail />} />
-        <Route path="ledgers" element={<Ledgers />} />
-        <Route path="assets" element={<Assets />} />
-        <Route path="search" element={<SearchPage />} />
+        <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+        <Route path="network" element={<ErrorBoundary><Network /></ErrorBoundary>} />
+        <Route path="accounts" element={<ErrorBoundary><Accounts /></ErrorBoundary>} />
+        <Route path="accounts/:accountId" element={<ErrorBoundary><AccountDetail /></ErrorBoundary>} />
+        <Route path="transactions" element={<ErrorBoundary><Transactions /></ErrorBoundary>} />
+        <Route path="transactions/:hash" element={<ErrorBoundary><TransactionDetail /></ErrorBoundary>} />
+        <Route path="ledgers" element={<ErrorBoundary><Ledgers /></ErrorBoundary>} />
+        <Route path="assets" element={<ErrorBoundary><Assets /></ErrorBoundary>} />
+        <Route path="search" element={<ErrorBoundary><SearchPage /></ErrorBoundary>} />
       </Route>
 
       {/* 404 - Not Found */}
