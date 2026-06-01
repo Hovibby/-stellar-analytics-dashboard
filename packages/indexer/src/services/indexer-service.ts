@@ -196,6 +196,43 @@ export class IndexerService {
     }
   }
 
+  /**
+   * Public API: backfill from a specific ledger sequence.
+   * If `endSequence` is omitted, backfill up to `latestLedger.sequence - 10`.
+   */
+  async backfillFromSequence(startSequence: number, endSequence?: number): Promise<void> {
+    console.log(`[indexer] manual backfill requested from ${startSequence}${endSequence ? ` to ${endSequence}` : ''}`);
+
+    if (!Number.isInteger(startSequence) || startSequence <= 0) {
+      throw new Error('startSequence must be a positive integer');
+    }
+
+    let horizonLatest: Horizon.ServerApi.LedgerRecord;
+    try {
+      // Apply rate limiter + circuit breaker when querying Horizon
+      horizonLatest = await this.circuitBreaker.execute(() =>
+        this.rateLimiter.consume().then(() => this.stellarService.getLatestLedger()),
+      );
+    } catch (err) {
+      if (err instanceof CircuitOpenError) {
+        console.warn('[indexer] circuit open – cannot perform manual backfill');
+        return;
+      }
+      throw err;
+    }
+
+    const resolvedEnd = endSequence && Number.isInteger(endSequence) && endSequence > 0
+      ? endSequence
+      : Math.max(horizonLatest.sequence - 10, startSequence);
+
+    if (startSequence > resolvedEnd) {
+      console.log(`[indexer] startSequence ${startSequence} is after end ${resolvedEnd}; nothing to backfill`);
+      return;
+    }
+
+    await this.backfillLedgers(startSequence, resolvedEnd);
+  }
+
   private async backfillLedgers(startSequence: number, endSequence: number): Promise<void> {
     console.log(`[indexer] backfilling ledgers ${startSequence} → ${endSequence}`);
 
