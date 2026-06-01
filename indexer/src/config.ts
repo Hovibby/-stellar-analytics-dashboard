@@ -15,6 +15,7 @@
  */
 
 import { configLogger } from "./logger.js";
+import type { AlertServiceConfig } from "./alerting/types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,6 +57,10 @@ export interface IndexerConfig {
 
   /** Delay in ms between batches to avoid rate-limiting (default: 200) */
   backfillBatchDelayMs: number;
+
+  // Alerting settings (Issue #143)
+  /** Alerting configuration */
+  alerting: AlertServiceConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +102,48 @@ function validatePort(name: string, value: string | undefined, defaultValue: num
     throw new Error(`${name} must be a valid port (1-65535). Got: ${port}`);
   }
   return port;
+}
+
+function parseAlertingConfig(): AlertServiceConfig {
+  const enabled = process.env.ALERTING_ENABLED === "true";
+
+  return {
+    enabled,
+    channels: {
+      slack: {
+        enabled: process.env.SLACK_ALERTS_ENABLED === "true",
+        webhookUrl: process.env.SLACK_WEBHOOK_URL,
+        cooldownMs: process.env.SLACK_ALERT_COOLDOWN_MS
+          ? parseInt(process.env.SLACK_ALERT_COOLDOWN_MS, 10)
+          : 5 * 60 * 1000,
+      },
+      email: {
+        enabled: process.env.EMAIL_ALERTS_ENABLED === "true",
+        smtpHost: process.env.EMAIL_SMTP_HOST,
+        smtpPort: process.env.EMAIL_SMTP_PORT
+          ? parseInt(process.env.EMAIL_SMTP_PORT, 10)
+          : 587,
+        smtpUser: process.env.EMAIL_SMTP_USER,
+        smtpPassword: process.env.EMAIL_SMTP_PASSWORD,
+        fromAddress: process.env.EMAIL_FROM_ADDRESS ?? "indexer@stellar-analytics.local",
+        toAddresses: process.env.EMAIL_TO_ADDRESSES
+          ? process.env.EMAIL_TO_ADDRESSES.split(",").map((addr) => addr.trim())
+          : [],
+        cooldownMs: process.env.EMAIL_ALERT_COOLDOWN_MS
+          ? parseInt(process.env.EMAIL_ALERT_COOLDOWN_MS, 10)
+          : 5 * 60 * 1000,
+      },
+    },
+    thresholds: {
+      errorRatePercent: process.env.ALERT_ERROR_RATE_PERCENT
+        ? parseFloat(process.env.ALERT_ERROR_RATE_PERCENT)
+        : 10,
+      deadLetterQueueSize: process.env.ALERT_DLQ_SIZE_THRESHOLD
+        ? parseInt(process.env.ALERT_DLQ_SIZE_THRESHOLD, 10)
+        : 100,
+      circuitBreakerOpen: process.env.ALERT_CIRCUIT_BREAKER_OPEN === "true",
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +228,7 @@ export function validateConfig(): IndexerConfig {
     backfillConcurrency,
     backfillBatchSize,
     backfillBatchDelayMs,
+    alerting: parseAlertingConfig(),
   };
 
   configLogger.info(
@@ -193,6 +241,7 @@ export function validateConfig(): IndexerConfig {
       backfillConcurrency: config.backfillConcurrency,
       backfillBatchSize: config.backfillBatchSize,
       databaseConfigured: config.databaseUrl !== null,
+      alertingEnabled: config.alerting.enabled,
     },
     "Configuration validated successfully"
   );
