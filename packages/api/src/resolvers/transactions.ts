@@ -3,6 +3,7 @@ import { db, CACHE_TTL } from '../database/connection';
 import { mapOperation, mapTransaction } from '../utils/mappers';
 import type { ApiLoaders } from '../loaders';
 import { ValidationService } from '../services/validation';
+import { withResolverLogging, NotFoundError } from '../utils/resolver-error';
 
 export interface ResolverContext {
   loaders: ApiLoaders;
@@ -10,22 +11,24 @@ export interface ResolverContext {
 
 export const transactionResolvers = {
   Query: {
-    transactions: async (
-      parent: unknown,
-      args: {
-        pagination?: { first?: number; after?: string; last?: number; before?: string };
-        timeRange?: { startTime?: string; endTime?: string };
-        filter?: {
-          successful?: boolean;
-          minFee?: number;
-          maxFee?: number;
-          hasMemo?: boolean;
-          memoType?: string;
-        };
-      },
-      context: ResolverContext,
-      _info: GraphQLResolveInfo
-    ) => {
+    transactions: withResolverLogging(
+      'Query.transactions',
+      async (
+        parent: unknown,
+        args: {
+          pagination?: { first?: number; after?: string; last?: number; before?: string };
+          timeRange?: { startTime?: string; endTime?: string };
+          filter?: {
+            successful?: boolean;
+            minFee?: number;
+            maxFee?: number;
+            hasMemo?: boolean;
+            memoType?: string;
+          };
+        },
+        context: ResolverContext,
+        _info: GraphQLResolveInfo
+      ) => {
       const { first = 20, after, before } = args.pagination || {};
 
       // Issue #31 – Validate pagination with comprehensive checks
@@ -145,73 +148,81 @@ export const transactionResolvers = {
       await db.cacheSet(cacheKey, result, CACHE_TTL.LEDGER_DATA);
       await db.incrementCacheMetric('transactions');
       return result;
-    },
+    }),
 
-    transaction: async (
-      parent: unknown,
-      args: { hash: string },
-      context: ResolverContext,
-      _info: GraphQLResolveInfo
-    ) => {
-      const cacheKey = `transaction:${args.hash}`;
+    transaction: withResolverLogging(
+      'Query.transaction',
+      async (
+        parent: unknown,
+        args: { hash: string },
+        context: ResolverContext,
+        _info: GraphQLResolveInfo
+      ) => {
+        const cacheKey = `transaction:${args.hash}`;
 
-      // Try cache first
-      const cached = await db.cacheGet(cacheKey);
-      if (cached) {
+        // Try cache first
+        const cached = await db.cacheGet(cacheKey);
+        if (cached) {
+          await db.incrementCacheMetric('transaction');
+          return cached;
+        }
+
+        const transaction = await db.queryOne(
+          `SELECT 
+            id, paging_token, successful, hash, ledger_sequence, created_at,
+            source_account, source_account_sequence, fee_account, fee_charged,
+            max_fee, operation_count, envelope_xdr, result_xdr, result_meta_xdr,
+            fee_meta_xdr, memo_type, memo, signatures, valid_after, valid_before,
+            fee_bump_transaction, inner_transaction_hash, inner_transaction_signatures
+          FROM transactions WHERE hash = $1`,
+          [args.hash]
+        );
+
+        if (!transaction) {
+          throw new NotFoundError('Transaction', args.hash);
+        }
+
+        const result = {
+          ...transaction,
+          createdAt: transaction.created_at,
+          sourceAccount: transaction.source_account,
+          sourceAccountSequence: transaction.source_account_sequence,
+          feeAccount: transaction.fee_account,
+          feeCharged: transaction.fee_charged,
+          maxFee: transaction.max_fee,
+          operationCount: transaction.operation_count,
+          envelopeXdr: transaction.envelope_xdr,
+          resultXdr: transaction.result_xdr,
+          resultMetaXdr: transaction.result_meta_xdr,
+          feeMetaXdr: transaction.fee_meta_xdr,
+          memoType: transaction.memo_type,
+          validAfter: transaction.valid_after,
+          validBefore: transaction.valid_before,
+          feeBumpTransaction: transaction.fee_bump_transaction,
+          innerTransactionHash: transaction.inner_transaction_hash,
+          innerTransactionSignatures: transaction.inner_transaction_signatures,
+        };
+
+        // Cache the result
+        await db.cacheSet(cacheKey, result, CACHE_TTL.LEDGER_DATA);
         await db.incrementCacheMetric('transaction');
-        return cached;
+        return result;
       }
-
-      const transaction = await db.queryOne(
-        `SELECT 
-          id, paging_token, successful, hash, ledger_sequence, created_at,
-          source_account, source_account_sequence, fee_account, fee_charged,
-          max_fee, operation_count, envelope_xdr, result_xdr, result_meta_xdr,
-          fee_meta_xdr, memo_type, memo, signatures, valid_after, valid_before,
-          fee_bump_transaction, inner_transaction_hash, inner_transaction_signatures
-        FROM transactions WHERE hash = $1`,
-        [args.hash]
-      );
-
-      if (!transaction) return null;
-
-      const result = {
-        ...transaction,
-        createdAt: transaction.created_at,
-        sourceAccount: transaction.source_account,
-        sourceAccountSequence: transaction.source_account_sequence,
-        feeAccount: transaction.fee_account,
-        feeCharged: transaction.fee_charged,
-        maxFee: transaction.max_fee,
-        operationCount: transaction.operation_count,
-        envelopeXdr: transaction.envelope_xdr,
-        resultXdr: transaction.result_xdr,
-        resultMetaXdr: transaction.result_meta_xdr,
-        feeMetaXdr: transaction.fee_meta_xdr,
-        memoType: transaction.memo_type,
-        validAfter: transaction.valid_after,
-        validBefore: transaction.valid_before,
-        feeBumpTransaction: transaction.fee_bump_transaction,
-        innerTransactionHash: transaction.inner_transaction_hash,
-        innerTransactionSignatures: transaction.inner_transaction_signatures,
-      };
-
-      // Cache the result
-      await db.cacheSet(cacheKey, result, CACHE_TTL.LEDGER_DATA);
-      await db.incrementCacheMetric('transaction');
-      return result;
-    },
+    ),
   },
 
   Transaction: {
-    operations: async (
-      parent: { hash: string },
-      _args: unknown,
-      context: ResolverContext,
-      _info: GraphQLResolveInfo
-    ) => {
-      const operations = await context.loaders.transactionOperationsLoader.load(parent.hash);
-      return operations.map((op) => mapOperation(op));
-    },
+    operations: withResolverLogging(
+      'Transaction.operations',
+      async (
+        parent: { hash: string },
+        _args: unknown,
+        context: ResolverContext,
+        _info: GraphQLResolveInfo
+      ) => {
+        const operations = await context.loaders.transactionOperationsLoader.load(parent.hash);
+        return operations.map((op) => mapOperation(op));
+      }
+    ),
   },
 };

@@ -4,10 +4,13 @@ import { Connection, Edge, PageInfo } from '@stellar-analytics/shared';
 import { mapLedger } from '../utils/mappers';
 import type { ApiLoaders } from '../loaders';
 import { ValidationService } from '../services/validation';
+import { withResolverLogging, NotFoundError } from '../utils/resolver-error';
 
 export const ledgerResolvers = {
   Query: {
-    ledgers: async (
+    ledgers: withResolverLogging(
+      'Query.ledgers',
+      async (
       parent: any,
       args: {
         pagination?: { first?: number; after?: string; last?: number; before?: string };
@@ -111,41 +114,46 @@ export const ledgerResolvers = {
       // Cache the result
       await db.cacheSet(cacheKey, result, CACHE_TTL.LEDGER_DATA);
       return result;
-    },
+    }),
 
-    ledger: async (
-      parent: unknown,
-      args: { sequence: number },
-      context: { loaders: ApiLoaders },
-      _info: GraphQLResolveInfo
-    ) => {
-      const cacheKey = `ledger:${args.sequence}`;
+    ledger: withResolverLogging(
+      'Query.ledger',
+      async (
+        parent: unknown,
+        args: { sequence: number },
+        context: { loaders: ApiLoaders },
+        _info: GraphQLResolveInfo
+      ) => {
+        const cacheKey = `ledger:${args.sequence}`;
 
-      // Try cache first
-      const cached = await db.cacheGet(cacheKey);
-      if (cached) {
-        return cached;
+        // Try cache first
+        const cached = await db.cacheGet(cacheKey);
+        if (cached) {
+          return cached;
+        }
+
+        const ledgerData = await db.queryOne(
+          `SELECT 
+            id, sequence, successful_transaction_count, failed_transaction_count,
+            operation_count, tx_set_operation_count, closed_at, total_coins,
+            fee_pool, base_fee_in_stroops, base_reserve_in_stroops,
+            max_tx_set_size, protocol_version, header_xdr, created_at, updated_at
+          FROM ledgers WHERE sequence = $1`,
+          [args.sequence]
+        );
+
+        if (!ledgerData) {
+          throw new NotFoundError('Ledger', args.sequence);
+        }
+
+        const result = {
+          ...mapLedger(ledgerData),
+        };
+
+        // Cache the result
+        await db.cacheSet(cacheKey, result, CACHE_TTL.LEDGER_DATA);
+        return result;
       }
-
-      const ledgerData = await db.queryOne(
-        `SELECT 
-          id, sequence, successful_transaction_count, failed_transaction_count,
-          operation_count, tx_set_operation_count, closed_at, total_coins,
-          fee_pool, base_fee_in_stroops, base_reserve_in_stroops,
-          max_tx_set_size, protocol_version, header_xdr, created_at, updated_at
-        FROM ledgers WHERE sequence = $1`,
-        [args.sequence]
-      );
-
-      if (!ledgerData) return null;
-
-      const result = {
-        ...mapLedger(ledgerData)
-      };
-
-      // Cache the result
-      await db.cacheSet(cacheKey, result, CACHE_TTL.LEDGER_DATA);
-      return result;
-    },
+    ),
   },
 };
