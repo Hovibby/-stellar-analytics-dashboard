@@ -77,24 +77,127 @@ class ApiServer {
 
     this.app.use(compression());
 
-    const limiter = rateLimit({
-      windowMs: 60 * 1000,
-      max: 1000,
+    // ── Rate limiting ─────────────────────────────────────────────────────────
+    //
+    // Three tiers, applied in order. The first limiter that matches a request
+    // key is the one that counts against it.
+    //
+    // Tier 1 – API key clients  (x-api-key header present)
+    //   Lower ceiling than JWT users because API keys are long-lived credentials
+    //   that may be shared or scripted. Keyed on the raw API key value so each
+    //   key has its own independent bucket.
+    //
+    // Tier 2 – Authenticated JWT users  (Bearer token present and valid)
+    //   Higher ceiling than anonymous callers. Keyed on user ID so the limit
+    //   follows the user regardless of IP.
+    //
+    // Tier 3 – Anonymous / IP fallback
+    //   Lowest ceiling. Keyed on IP address.
+
+    const API_KEY_WINDOW_MS   = parseInt(process.env.RATE_LIMIT_API_KEY_WINDOW_MS   || '60000',  10);
+    const API_KEY_MAX         = parseInt(process.env.RATE_LIMIT_API_KEY_MAX         || '300',    10);
+    const JWT_USER_WINDOW_MS  = parseInt(process.env.RATE_LIMIT_JWT_USER_WINDOW_MS  || '60000',  10);
+    const JWT_USER_MAX        = parseInt(process.env.RATE_LIMIT_JWT_USER_MAX        || '1000',   10);
+    const ANON_WINDOW_MS      = parseInt(process.env.RATE_LIMIT_ANON_WINDOW_MS      || '60000',  10);
+    const ANON_MAX            = parseInt(process.env.RATE_LIMIT_ANON_MAX            || '100',    10);
+
+    // Tier 1 – API key limiter
+    const apiKeyLimiter = rateLimit({
+      windowMs: API_KEY_WINDOW_MS,
+      max: API_KEY_MAX,
       standardHeaders: true,
       legacyHeaders: false,
-      message: { error: 'Too many requests from this IP, please try again later.' },
+      // Skip requests that are NOT using an API key — let the next limiter handle them
+      skip: (req) => {
+        const apiKey = req.headers['x-api-key'] as string | undefined;
+        return !apiKey || !authService.validateApiKey(apiKey);
+      },
+      keyGenerator: (req) => {
+        // Key on the API key itself so each issued key has its own bucket
+        return `apikey:${req.headers['x-api-key']}`;
+      },
+      message: {
+        error: 'API key rate limit exceeded. Please reduce your request rate or contact support to increase your quota.',
+      },
+      handler: (req, res, next, options) => {
+        this.logger.warn('API key rate limit exceeded', {
+          apiKey: (req.headers['x-api-key'] as string)?.substring(0, 12) + '…',
+          ip: req.ip,
+          limit: options.max,
+          windowMs: options.windowMs,
+        });
+        res.status(429).json(options.message);
+      },
+    });
+
+    // Tier 2 – JWT user limiter
+    const jwtUserLimiter = rateLimit({
+      windowMs: JWT_USER_WINDOW_MS,
+      max: JWT_USER_MAX,
+      standardHeaders: true,
+      legacyHeaders: false,
+      // Skip API key requests (already handled above) and anonymous requests
+      skip: (req) => {
+        const apiKey = req.headers['x-api-key'] as string | undefined;
+        if (apiKey && authService.validateApiKey(apiKey)) return true;
+        const token = authService.extractToken(req.headers.authorization);
+        if (!token) return true;
+        return !authService.verifyToken(token);
+      },
       keyGenerator: (req) => {
         const token = authService.extractToken(req.headers.authorization);
         if (token) {
           const payload = authService.verifyToken(token);
-          if (payload) {
-            return `user:${payload.userId}`;
-          }
+          if (payload) return `user:${payload.userId}`;
         }
         return req.ip || req.socket.remoteAddress || 'unknown';
       },
+      message: {
+        error: 'Too many requests. Please slow down and try again later.',
+      },
+      handler: (req, res, next, options) => {
+        const token = authService.extractToken(req.headers.authorization);
+        const payload = token ? authService.verifyToken(token) : null;
+        this.logger.warn('JWT user rate limit exceeded', {
+          userId: payload?.userId ?? 'unknown',
+          ip: req.ip,
+          limit: options.max,
+          windowMs: options.windowMs,
+        });
+        res.status(429).json(options.message);
+      },
     });
-    this.app.use('/graphql', limiter);
+
+    // Tier 3 – Anonymous / IP fallback limiter
+    const anonLimiter = rateLimit({
+      windowMs: ANON_WINDOW_MS,
+      max: ANON_MAX,
+      standardHeaders: true,
+      legacyHeaders: false,
+      // Skip authenticated requests — they are handled by the tiers above
+      skip: (req) => {
+        const apiKey = req.headers['x-api-key'] as string | undefined;
+        if (apiKey && authService.validateApiKey(apiKey)) return true;
+        const token = authService.extractToken(req.headers.authorization);
+        if (token && authService.verifyToken(token)) return true;
+        return false;
+      },
+      keyGenerator: (req) => req.ip || req.socket.remoteAddress || 'unknown',
+      message: {
+        error: 'Too many requests from this IP, please try again later.',
+      },
+      handler: (req, res, next, options) => {
+        this.logger.warn('Anonymous rate limit exceeded', {
+          ip: req.ip,
+          limit: options.max,
+          windowMs: options.windowMs,
+        });
+        res.status(429).json(options.message);
+      },
+    });
+
+    // Apply all three limiters to the GraphQL endpoint
+    this.app.use('/graphql', apiKeyLimiter, jwtUserLimiter, anonLimiter);
 
     this.app.get('/health', async (_req, res) => {
       try {
