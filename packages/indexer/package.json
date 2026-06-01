@@ -15,8 +15,8 @@
     "db:migrate:create": "node-pg-migrate create -f .node-pg-migraterc",
     "db:migrate:redo": "node-pg-migrate redo -f .node-pg-migraterc",
     "db:seed": "ts-node src/database/seed.ts",
-    "test": "jest",
-    "test:watch": "jest --watch"
+    "test": "jest --config jest.config.js",
+    "test:watch": "jest --config jest.config.js --watch"
   },
   "dependencies": {
     "@stellar-analytics/shared": "workspace:*",
