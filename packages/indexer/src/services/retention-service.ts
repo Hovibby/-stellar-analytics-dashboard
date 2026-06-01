@@ -56,31 +56,36 @@ export class RetentionService {
     this.logger.info('Applying data retention policies...');
 
     const now = new Date();
-    const cutoffDate = new Date(now.getTime() - RETENTION_PERIODS.LEDGERS_DAYS * 24 * 60 * 60 * 1000);
 
     try {
-      // Archive and delete old ledgers
-      await this.archiveAndDelete('ledgers', cutoffDate, [
-        'sequence', 'hash', 'closed_at', 'tx_count', 'created_at'
-      ]);
+      const ledgerCutoff = new Date(now.getTime() - RETENTION_PERIODS.LEDGERS_DAYS * 24 * 60 * 60 * 1000);
+      await this.archiveAndDelete('ledgers', ledgerCutoff, [
+        'sequence', 'hash', 'closed_at', 'tx_count', 'created_at',
+      ], 'sequence');
 
-      // Archive and delete old transactions
       const txCutoff = new Date(now.getTime() - RETENTION_PERIODS.TRANSACTIONS_DAYS * 24 * 60 * 60 * 1000);
       await this.archiveAndDelete('transactions', txCutoff, [
-        'hash', 'ledger_sequence', 'source_account', 'fee_charged', 'created_at'
-      ]);
+        'hash', 'ledger_sequence', 'source_account', 'fee_charged', 'created_at',
+      ], 'hash');
 
-      // Archive and delete old operations
       const opCutoff = new Date(now.getTime() - RETENTION_PERIODS.OPERATIONS_DAYS * 24 * 60 * 60 * 1000);
       await this.archiveAndDelete('operations', opCutoff, [
-        'id', 'tx_hash', 'type', 'source_account', 'created_at'
-      ]);
+        'id', 'tx_hash', 'type', 'source_account', 'created_at',
+      ], 'id');
 
-      // Archive and delete old payments
       const payCutoff = new Date(now.getTime() - RETENTION_PERIODS.PAYMENTS_DAYS * 24 * 60 * 60 * 1000);
       await this.archiveAndDelete('payments', payCutoff, [
-        'id', '"from"', '"to"', 'amount', 'asset', 'created_at'
-      ]);
+        'id', '"from"', '"to"', 'amount', 'asset', 'created_at',
+      ], 'id');
+
+      const nmCutoff = new Date(now.getTime() - RETENTION_PERIODS.NETWORK_METRICS_DAYS * 24 * 60 * 60 * 1000);
+      await this.deleteOldMetrics('network_metrics', nmCutoff, 'timestamp');
+
+      const amCutoff = new Date(now.getTime() - RETENTION_PERIODS.ASSET_METRICS_DAYS * 24 * 60 * 60 * 1000);
+      await this.deleteOldMetrics('asset_metrics', amCutoff, 'timestamp');
+
+      const acmCutoff = new Date(now.getTime() - RETENTION_PERIODS.ACCOUNT_METRICS_DAYS * 24 * 60 * 60 * 1000);
+      await this.deleteOldMetrics('account_metrics', acmCutoff, 'timestamp');
 
       this.logger.info('Data retention policies applied successfully');
     } catch (error) {
@@ -88,35 +93,54 @@ export class RetentionService {
     }
   }
 
-  private async archiveAndDelete(table: string, cutoff: Date, columns: string[]): Promise<void> {
+  private async archiveAndDelete(
+    table: string,
+    cutoff: Date,
+    columns: string[],
+    idColumn: string
+  ): Promise<void> {
     const archiveTable = `${table}_archive`;
+    let totalArchived = 0;
 
-    const oldRecords = await db.query(
-      `SELECT ${columns.join(', ')} FROM ${table} WHERE created_at < $1 LIMIT 1000`,
-      [cutoff]
-    );
+    while (true) {
+      const oldRecords = await db.query(
+        `SELECT ${columns.join(', ')} FROM ${table} WHERE created_at < $1 LIMIT 1000`,
+        [cutoff]
+      );
 
-    if (oldRecords.length > 0) {
+      if (oldRecords.length === 0) break;
+
       for (const record of oldRecords) {
         const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
-        const values = columns.map(col => {
-          const key = col.replace(/"/g, '');
-          return record[key];
-        });
-
+        const values = columns.map(col => record[col.replace(/"/g, '')]);
         await db.query(
-          `INSERT INTO ${archiveTable} (${columns.join(', ')}) VALUES (${placeholders}) 
-           ON CONFLICT DO NOTHING`,
+          `INSERT INTO ${archiveTable} (${columns.join(', ')}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
           values
         );
       }
 
-      await db.query(
-        `DELETE FROM ${table} WHERE created_at < $1`,
-        [cutoff]
-      );
+      const ids = oldRecords.map(r => r[idColumn]);
+      const deletePlaceholders = ids.map((_, i) => `$${i + 1}`).join(', ');
+      await db.query(`DELETE FROM ${table} WHERE ${idColumn} IN (${deletePlaceholders})`, ids);
 
-      this.logger.info(`Archived and deleted ${oldRecords.length} records from ${table}`);
+      totalArchived += oldRecords.length;
+    }
+
+    if (totalArchived > 0) {
+      this.logger.info(`Archived and deleted ${totalArchived} records from ${table}`);
+    }
+  }
+
+  private async deleteOldMetrics(table: string, cutoff: Date, dateColumn: string): Promise<void> {
+    const result = await db.query(
+      `WITH deleted AS (
+        DELETE FROM ${table} WHERE ${dateColumn} < $1 RETURNING id
+      ) SELECT COUNT(*) AS deleted_count FROM deleted`,
+      [cutoff]
+    );
+    const deletedCount = parseInt(result[0]?.deleted_count ?? '0');
+    if (deletedCount > 0) {
+      this.logger.info(`Deleted ${deletedCount} records from ${table}`);
     }
   }
 

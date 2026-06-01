@@ -1,7 +1,7 @@
-export type StellarNetwork = 'mainnet' | 'testnet';
+export type StellarNetwork = "mainnet" | "testnet";
 export interface StellarNetworkConfig {
-  network: StellarNetwork;
-  horizonUrl: string;
-  networkPassphrase: string;
+    network: StellarNetwork;
+    horizonUrl: string;
+    networkPassphrase: string;
 }
 //# sourceMappingURL=stellar.d.ts.map
