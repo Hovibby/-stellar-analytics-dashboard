@@ -34,6 +34,7 @@ export class IndexerService {
   private stellarService: StellarService;
   private isRunning: boolean = false;
   private lastProcessedLedger: number = 0;
+  private lastLedgerProcessedAt: number | null = null;
   private websocketReconnectAttempts: number = 0;
 
   private readonly idempotency: IdempotencyTracker;
@@ -178,6 +179,7 @@ export class IndexerService {
         console.warn('[indexer] circuit open – skipping backfill');
         return;
       }
+      metrics.horizonRequestErrorsTotal.inc({ endpoint: 'latest_ledger' });
       throw err;
     }
 
@@ -258,6 +260,7 @@ export class IndexerService {
           console.warn(`[indexer] circuit open – aborting batch at sequence ${sequence}`);
           return;
         }
+        metrics.horizonRequestErrorsTotal.inc({ endpoint: 'ledger' });
         console.error(`[indexer] error fetching ledger ${sequence}:`, error);
         metrics.errorsTotal.inc({ type: 'fetch_ledger' });
       }
@@ -296,37 +299,43 @@ export class IndexerService {
       await db.transaction(async (client) => {
         // ── DB write: ledger ──────────────────────────────────────────────────
         const dbWriteEnd = metrics.dbWriteDuration.startTimer({ table: 'ledgers' });
-        await client.query(
-          `INSERT INTO ledgers (
-            id, sequence, successful_transaction_count, failed_transaction_count,
-            operation_count, tx_set_operation_count, closed_at, total_coins,
-            fee_pool, base_fee_in_stroops, base_reserve_in_stroops,
-            max_tx_set_size, protocol_version, header_xdr
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-          ON CONFLICT (sequence) DO UPDATE SET
-            successful_transaction_count = EXCLUDED.successful_transaction_count,
-            failed_transaction_count     = EXCLUDED.failed_transaction_count,
-            operation_count              = EXCLUDED.operation_count,
-            tx_set_operation_count       = EXCLUDED.tx_set_operation_count,
-            updated_at                   = NOW()`,
-          [
-            ledger.id,
-            ledger.sequence,
-            ledger.successful_transaction_count,
-            ledger.failed_transaction_count,
-            ledger.operation_count,
-            ledger.tx_set_operation_count,
-            ledger.closed_at,
-            ledger.total_coins,
-            ledger.fee_pool,
-            ledger.base_fee_in_stroops,
-            ledger.base_reserve_in_stroops,
-            ledger.max_tx_set_size,
-            ledger.protocol_version,
-            ledger.header_xdr,
-          ],
-        );
-        dbWriteEnd();
+        try {
+          await client.query(
+            `INSERT INTO ledgers (
+              id, sequence, successful_transaction_count, failed_transaction_count,
+              operation_count, tx_set_operation_count, closed_at, total_coins,
+              fee_pool, base_fee_in_stroops, base_reserve_in_stroops,
+              max_tx_set_size, protocol_version, header_xdr
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            ON CONFLICT (sequence) DO UPDATE SET
+              successful_transaction_count = EXCLUDED.successful_transaction_count,
+              failed_transaction_count     = EXCLUDED.failed_transaction_count,
+              operation_count              = EXCLUDED.operation_count,
+              tx_set_operation_count       = EXCLUDED.tx_set_operation_count,
+              updated_at                   = NOW()`,
+            [
+              ledger.id,
+              ledger.sequence,
+              ledger.successful_transaction_count,
+              ledger.failed_transaction_count,
+              ledger.operation_count,
+              ledger.tx_set_operation_count,
+              ledger.closed_at,
+              ledger.total_coins,
+              ledger.fee_pool,
+              ledger.base_fee_in_stroops,
+              ledger.base_reserve_in_stroops,
+              ledger.max_tx_set_size,
+              ledger.protocol_version,
+              ledger.header_xdr,
+            ],
+          );
+        } catch (error) {
+          metrics.dbWriteErrorsTotal.inc({ table: 'ledgers' });
+          throw error;
+        } finally {
+          dbWriteEnd();
+        }
 
         // ── Transactions ──────────────────────────────────────────────────────
         await this.processTransactionsForLedger(ledger.sequence, client);
@@ -348,6 +357,15 @@ export class IndexerService {
       // ── #43 Counters ──────────────────────────────────────────────────────
       metrics.ledgersProcessed.inc();
       metrics.lastProcessedLedger.set(ledger.sequence);
+
+      const now = Date.now();
+      if (this.lastLedgerProcessedAt !== null) {
+        const intervalSeconds = (now - this.lastLedgerProcessedAt) / 1000;
+        if (intervalSeconds > 0) {
+          metrics.setLedgerIngestionRate(1 / intervalSeconds);
+        }
+      }
+      this.lastLedgerProcessedAt = now;
 
       // Update circuit breaker state gauge
       metrics.setCircuitBreakerState(this.stellarService.getCircuitBreakerState());
@@ -371,6 +389,7 @@ export class IndexerService {
     client: any,
   ): Promise<void> {
     // ── #37 Rate limiter + #41 Circuit breaker ───────────────────────────────────
+    metrics.horizonRequestsTotal.inc({ endpoint: 'transactions' });
     const horizonEnd = metrics.horizonRequestDuration.startTimer({ endpoint: 'transactions' });
     let rawTransactions: Horizon.ServerApi.CollectionPage<Horizon.ServerApi.TransactionRecord>;
     try {
@@ -385,6 +404,7 @@ export class IndexerService {
         console.warn(`[indexer] circuit open – skipping transactions for ledger ${ledgerSequence}`);
         return;
       }
+      metrics.horizonRequestErrorsTotal.inc({ endpoint: 'transactions' });
       throw err;
     } finally {
       horizonEnd();
@@ -418,46 +438,51 @@ export class IndexerService {
   ): Promise<void> {
     const dbWriteEnd = metrics.dbWriteDuration.startTimer({ table: 'transactions' });
     try {
-      await client.query(
-        `INSERT INTO transactions (
-          id, paging_token, successful, hash, ledger_sequence, created_at,
-          source_account, source_account_sequence, fee_account, fee_charged,
-          max_fee, operation_count, envelope_xdr, result_xdr, result_meta_xdr,
-          fee_meta_xdr, memo_type, memo, signatures, valid_after, valid_before,
-          fee_bump_transaction, inner_transaction_hash, inner_transaction_signatures
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
-        ON CONFLICT (hash) DO UPDATE SET
-          successful = EXCLUDED.successful,
-          updated_at = NOW()`,
-        [
-          txRecord.id,
-          txRecord.paging_token,
-          txRecord.successful,
-          txRecord.hash,
-          txRecord.ledger,
-          txRecord.created_at,
-          txRecord.source_account,
-          txRecord.source_account_sequence,
-          txRecord.fee_account,
-          txRecord.fee_charged,
-          txRecord.max_fee,
-          txRecord.operation_count,
-          txRecord.envelope_xdr,
-          txRecord.result_xdr,
-          txRecord.result_meta_xdr,
-          txRecord.fee_meta_xdr,
-          txRecord.memo_type || 'none',
-          txRecord.memo,
-          JSON.stringify(txRecord.signatures),
-          txRecord.valid_after,
-          txRecord.valid_before,
-          txRecord.fee_bump_transaction,
-          txRecord.inner_transaction?.hash,
-          txRecord.inner_transaction
-            ? JSON.stringify(txRecord.inner_transaction.signatures)
-            : null,
-        ],
-      );
+      try {
+        await client.query(
+          `INSERT INTO transactions (
+            id, paging_token, successful, hash, ledger_sequence, created_at,
+            source_account, source_account_sequence, fee_account, fee_charged,
+            max_fee, operation_count, envelope_xdr, result_xdr, result_meta_xdr,
+            fee_meta_xdr, memo_type, memo, signatures, valid_after, valid_before,
+            fee_bump_transaction, inner_transaction_hash, inner_transaction_signatures
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+          ON CONFLICT (hash) DO UPDATE SET
+            successful = EXCLUDED.successful,
+            updated_at = NOW()`,
+          [
+            txRecord.id,
+            txRecord.paging_token,
+            txRecord.successful,
+            txRecord.hash,
+            txRecord.ledger,
+            txRecord.created_at,
+            txRecord.source_account,
+            txRecord.source_account_sequence,
+            txRecord.fee_account,
+            txRecord.fee_charged,
+            txRecord.max_fee,
+            txRecord.operation_count,
+            txRecord.envelope_xdr,
+            txRecord.result_xdr,
+            txRecord.result_meta_xdr,
+            txRecord.fee_meta_xdr,
+            txRecord.memo_type || 'none',
+            txRecord.memo,
+            JSON.stringify(txRecord.signatures),
+            txRecord.valid_after,
+            txRecord.valid_before,
+            txRecord.fee_bump_transaction,
+            txRecord.inner_transaction?.hash,
+            txRecord.inner_transaction
+              ? JSON.stringify(txRecord.inner_transaction.signatures)
+              : null,
+          ],
+        );
+      } catch (error) {
+        metrics.dbWriteErrorsTotal.inc({ table: 'transactions' });
+        throw error;
+      }
     } finally {
       dbWriteEnd();
     }
@@ -475,6 +500,7 @@ export class IndexerService {
     transactionHash: string,
     client: any,
   ): Promise<void> {
+    metrics.horizonRequestsTotal.inc({ endpoint: 'operations' });
     const horizonEnd = metrics.horizonRequestDuration.startTimer({ endpoint: 'operations' });
     let rawOperations: Horizon.ServerApi.CollectionPage<Horizon.ServerApi.OperationRecord>;
     try {
@@ -494,6 +520,7 @@ export class IndexerService {
         );
         return;
       }
+      metrics.horizonRequestErrorsTotal.inc({ endpoint: 'operations' });
       throw err;
     } finally {
       horizonEnd();
@@ -529,28 +556,33 @@ export class IndexerService {
 
     const dbWriteEnd = metrics.dbWriteDuration.startTimer({ table: 'operations' });
     try {
-      await client.query(
-        `INSERT INTO operations (
-          id, paging_token, transaction_hash, transaction_successful,
-          type, created_at, source_account, ledger_sequence, operation_index, details
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-        ON CONFLICT (id) DO UPDATE SET
-          transaction_successful = EXCLUDED.transaction_successful,
-          details                = EXCLUDED.details,
-          updated_at             = NOW()`,
-        [
-          opRecord.id,
-          opRecord.paging_token,
-          opRecord.transaction_hash,
-          opRecord.transaction_successful,
-          opRecord.type,
-          opRecord.created_at,
-          opRecord.source_account,
-          opRecord.id.split('-')[0],
-          parseInt(opRecord.id.split('-')[1]),
-          JSON.stringify(details),
-        ],
-      );
+      try {
+        await client.query(
+          `INSERT INTO operations (
+            id, paging_token, transaction_hash, transaction_successful,
+            type, created_at, source_account, ledger_sequence, operation_index, details
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          ON CONFLICT (id) DO UPDATE SET
+            transaction_successful = EXCLUDED.transaction_successful,
+            details                = EXCLUDED.details,
+            updated_at             = NOW()`,
+          [
+            opRecord.id,
+            opRecord.paging_token,
+            opRecord.transaction_hash,
+            opRecord.transaction_successful,
+            opRecord.type,
+            opRecord.created_at,
+            opRecord.source_account,
+            opRecord.id.split('-')[0],
+            parseInt(opRecord.id.split('-')[1]),
+            JSON.stringify(details),
+          ],
+        );
+      } catch (error) {
+        metrics.dbWriteErrorsTotal.inc({ table: 'operations' });
+        throw error;
+      }
     } finally {
       dbWriteEnd();
     }

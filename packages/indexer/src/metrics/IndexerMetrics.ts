@@ -1,5 +1,6 @@
 /**
  * Issue #43 – Indexer Metrics Collection
+ * Issue #139 – Add more metrics to Prometheus endpoint
  *
  * Prometheus metrics for the indexer using the `prom-client` library.
  * Exposes a /metrics HTTP endpoint on the existing health-check server.
