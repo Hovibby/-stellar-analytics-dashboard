@@ -1,5 +1,6 @@
 /**
  * Issue #43 – Indexer Metrics Collection
+ * Issue #139 – Add more metrics to Prometheus endpoint
  *
  * Prometheus metrics for the indexer using the `prom-client` library.
  * Exposes a /metrics HTTP endpoint on the existing health-check server.
@@ -11,12 +12,20 @@
  *   - indexer_errors_total                     (counter, labelled by type)
  *   - indexer_validation_failures_total        (counter, labelled by entity)
  *   - indexer_idempotency_skips_total          (counter)
+ *   - indexer_websocket_reconnections_total    (counter)
  *   - indexer_cycle_duration_seconds           (histogram)
  *   - indexer_db_write_duration_seconds        (histogram, labelled by table)
  *   - indexer_horizon_request_duration_seconds (histogram, labelled by endpoint)
  *   - indexer_circuit_breaker_state            (gauge: 0=CLOSED,1=HALF_OPEN,2=OPEN)
  *   - indexer_queue_depth                      (gauge)
  *   - indexer_last_processed_ledger_sequence   (gauge)
+ *   - indexer_ingestion_rate_ledgers_per_sec   (gauge)
+ *   - indexer_ingestion_rate_txs_per_sec       (gauge)
+ *   - indexer_ingestion_rate_ops_per_sec       (gauge)
+ *   - indexer_error_rate_percentage            (gauge)
+ *   - indexer_errors_by_severity_total         (counter, labelled by severity)
+ *   - indexer_end_to_end_latency_seconds       (histogram)
+ *   - indexer_processing_latency_seconds       (histogram)
  */
 
 import {
@@ -39,16 +48,23 @@ export class IndexerMetrics {
   readonly validationFailures: Counter<string>;
   readonly idempotencySkips: Counter<string>;
   readonly websocketReconnections: Counter<string>;
+  readonly errorsBySeverity: Counter<string>;
 
   // Histograms
   readonly cycleDuration: Histogram<string>;
   readonly dbWriteDuration: Histogram<string>;
   readonly horizonRequestDuration: Histogram<string>;
+  readonly endToEndLatency: Histogram<string>;
+  readonly processingLatency: Histogram<string>;
 
   // Gauges
   readonly circuitBreakerState: Gauge<string>;
   readonly queueDepth: Gauge<string>;
   readonly lastProcessedLedger: Gauge<string>;
+  readonly ingestionRateLedgersPerSec: Gauge<string>;
+  readonly ingestionRateTxsPerSec: Gauge<string>;
+  readonly ingestionRateOpsPerSec: Gauge<string>;
+  readonly errorRatePercentage: Gauge<string>;
 
   private constructor() {
     this.registry = new Registry();
@@ -104,6 +120,14 @@ export class IndexerMetrics {
       registers: [this.registry],
     });
 
+    // Issue #139 – Errors by severity counter
+    this.errorsBySeverity = new Counter({
+      name: 'indexer_errors_by_severity_total',
+      help: 'Total number of errors by severity level',
+      labelNames: ['severity'] as const,
+      registers: [this.registry],
+    });
+
     // -----------------------------------------------------------------------
     // Histograms
     // -----------------------------------------------------------------------
@@ -130,6 +154,22 @@ export class IndexerMetrics {
       registers: [this.registry],
     });
 
+    // Issue #139 – End-to-end latency histogram
+    this.endToEndLatency = new Histogram({
+      name: 'indexer_end_to_end_latency_seconds',
+      help: 'End-to-end latency from ledger receipt to processing completion in seconds',
+      buckets: [0.5, 1, 2, 5, 10, 30, 60],
+      registers: [this.registry],
+    });
+
+    // Issue #139 – Processing latency histogram
+    this.processingLatency = new Histogram({
+      name: 'indexer_processing_latency_seconds',
+      help: 'Time taken to process a ledger in seconds',
+      buckets: [0.1, 0.5, 1, 2, 5, 10],
+      registers: [this.registry],
+    });
+
     // -----------------------------------------------------------------------
     // Gauges
     // -----------------------------------------------------------------------
@@ -150,6 +190,32 @@ export class IndexerMetrics {
       help: 'Sequence number of the last successfully processed ledger',
       registers: [this.registry],
     });
+
+    // Issue #139 – Ingestion rate gauges
+    this.ingestionRateLedgersPerSec = new Gauge({
+      name: 'indexer_ingestion_rate_ledgers_per_sec',
+      help: 'Current ingestion rate of ledgers per second',
+      registers: [this.registry],
+    });
+
+    this.ingestionRateTxsPerSec = new Gauge({
+      name: 'indexer_ingestion_rate_txs_per_sec',
+      help: 'Current ingestion rate of transactions per second',
+      registers: [this.registry],
+    });
+
+    this.ingestionRateOpsPerSec = new Gauge({
+      name: 'indexer_ingestion_rate_ops_per_sec',
+      help: 'Current ingestion rate of operations per second',
+      registers: [this.registry],
+    });
+
+    // Issue #139 – Error rate percentage gauge
+    this.errorRatePercentage = new Gauge({
+      name: 'indexer_error_rate_percentage',
+      help: 'Current error rate as a percentage (0-100)',
+      registers: [this.registry],
+    });
   }
 
   static getInstance(): IndexerMetrics {
@@ -167,6 +233,33 @@ export class IndexerMetrics {
   setCircuitBreakerState(state: 'CLOSED' | 'HALF_OPEN' | 'OPEN'): void {
     const stateMap = { CLOSED: 0, HALF_OPEN: 1, OPEN: 2 } as const;
     this.circuitBreakerState.set(stateMap[state]);
+  }
+
+  /** Set ingestion rate metrics. */
+  setIngestionRates(ledgersPerSec: number, txsPerSec: number, opsPerSec: number): void {
+    this.ingestionRateLedgersPerSec.set(ledgersPerSec);
+    this.ingestionRateTxsPerSec.set(txsPerSec);
+    this.ingestionRateOpsPerSec.set(opsPerSec);
+  }
+
+  /** Set error rate percentage (0-100). */
+  setErrorRatePercentage(percentage: number): void {
+    this.errorRatePercentage.set(Math.min(100, Math.max(0, percentage)));
+  }
+
+  /** Record an error by severity level. */
+  recordErrorBySeverity(severity: 'low' | 'medium' | 'high' | 'critical'): void {
+    this.errorsBySeverity.inc({ severity });
+  }
+
+  /** Record end-to-end latency. */
+  recordEndToEndLatency(durationSeconds: number): void {
+    this.endToEndLatency.observe(durationSeconds);
+  }
+
+  /** Record processing latency. */
+  recordProcessingLatency(durationSeconds: number): void {
+    this.processingLatency.observe(durationSeconds);
   }
 
   /** Return the full Prometheus text exposition. */
