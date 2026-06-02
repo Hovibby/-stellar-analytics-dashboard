@@ -97,6 +97,21 @@ describe('StellarService – ledger methods', () => {
     expect(result).toBe(fakeRecord);
   });
 
+  it('retries transient Horizon failures before succeeding', async () => {
+    const builder = createBuilder();
+    builder.call = jest.fn()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValue({ sequence: 99999 });
+    mockServer.ledgers = jest.fn().mockReturnValue(builder);
+
+    const svc = new StellarService('https://horizon.stellar.org');
+    const result = await svc.getLatestLedger();
+
+    expect(builder.call).toHaveBeenCalledTimes(3);
+    expect(result).toEqual({ sequence: 99999 });
+  });
+
   it('getLedger(sequence) calls ledgers().ledger().call()', async () => {
     const builder = createBuilder();
     mockServer.ledgers = jest.fn().mockReturnValue(builder);
