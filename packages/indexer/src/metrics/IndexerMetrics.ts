@@ -19,13 +19,10 @@
  *   - indexer_circuit_breaker_state            (gauge: 0=CLOSED,1=HALF_OPEN,2=OPEN)
  *   - indexer_queue_depth                      (gauge)
  *   - indexer_last_processed_ledger_sequence   (gauge)
- *   - indexer_ingestion_rate_ledgers_per_sec   (gauge)
- *   - indexer_ingestion_rate_txs_per_sec       (gauge)
- *   - indexer_ingestion_rate_ops_per_sec       (gauge)
- *   - indexer_error_rate_percentage            (gauge)
- *   - indexer_errors_by_severity_total         (counter, labelled by severity)
- *   - indexer_end_to_end_latency_seconds       (histogram)
- *   - indexer_processing_latency_seconds       (histogram)
+ *   - indexer_horizon_requests_total           (counter, labelled by endpoint)
+ *   - indexer_horizon_request_errors_total     (counter, labelled by endpoint)
+ *   - indexer_db_write_errors_total            (counter, labelled by table)
+ *   - indexer_ledger_ingestion_rate_per_second (gauge)
  */
 
 import {
@@ -48,7 +45,9 @@ export class IndexerMetrics {
   readonly validationFailures: Counter<string>;
   readonly idempotencySkips: Counter<string>;
   readonly websocketReconnections: Counter<string>;
-  readonly errorsBySeverity: Counter<string>;
+  readonly horizonRequestsTotal: Counter<string>;
+  readonly horizonRequestErrorsTotal: Counter<string>;
+  readonly dbWriteErrorsTotal: Counter<string>;
 
   // Histograms
   readonly cycleDuration: Histogram<string>;
@@ -61,10 +60,7 @@ export class IndexerMetrics {
   readonly circuitBreakerState: Gauge<string>;
   readonly queueDepth: Gauge<string>;
   readonly lastProcessedLedger: Gauge<string>;
-  readonly ingestionRateLedgersPerSec: Gauge<string>;
-  readonly ingestionRateTxsPerSec: Gauge<string>;
-  readonly ingestionRateOpsPerSec: Gauge<string>;
-  readonly errorRatePercentage: Gauge<string>;
+  readonly ledgerIngestionRate: Gauge<string>;
 
   private constructor() {
     this.registry = new Registry();
@@ -120,11 +116,24 @@ export class IndexerMetrics {
       registers: [this.registry],
     });
 
-    // Issue #139 – Errors by severity counter
-    this.errorsBySeverity = new Counter({
-      name: 'indexer_errors_by_severity_total',
-      help: 'Total number of errors by severity level',
-      labelNames: ['severity'] as const,
+    this.horizonRequestsTotal = new Counter({
+      name: 'indexer_horizon_requests_total',
+      help: 'Total number of Horizon API requests by endpoint',
+      labelNames: ['endpoint'] as const,
+      registers: [this.registry],
+    });
+
+    this.horizonRequestErrorsTotal = new Counter({
+      name: 'indexer_horizon_request_errors_total',
+      help: 'Total number of Horizon API request failures by endpoint',
+      labelNames: ['endpoint'] as const,
+      registers: [this.registry],
+    });
+
+    this.dbWriteErrorsTotal = new Counter({
+      name: 'indexer_db_write_errors_total',
+      help: 'Total number of database write failures by table',
+      labelNames: ['table'] as const,
       registers: [this.registry],
     });
 
@@ -191,29 +200,9 @@ export class IndexerMetrics {
       registers: [this.registry],
     });
 
-    // Issue #139 – Ingestion rate gauges
-    this.ingestionRateLedgersPerSec = new Gauge({
-      name: 'indexer_ingestion_rate_ledgers_per_sec',
-      help: 'Current ingestion rate of ledgers per second',
-      registers: [this.registry],
-    });
-
-    this.ingestionRateTxsPerSec = new Gauge({
-      name: 'indexer_ingestion_rate_txs_per_sec',
-      help: 'Current ingestion rate of transactions per second',
-      registers: [this.registry],
-    });
-
-    this.ingestionRateOpsPerSec = new Gauge({
-      name: 'indexer_ingestion_rate_ops_per_sec',
-      help: 'Current ingestion rate of operations per second',
-      registers: [this.registry],
-    });
-
-    // Issue #139 – Error rate percentage gauge
-    this.errorRatePercentage = new Gauge({
-      name: 'indexer_error_rate_percentage',
-      help: 'Current error rate as a percentage (0-100)',
+    this.ledgerIngestionRate = new Gauge({
+      name: 'indexer_ledger_ingestion_rate_per_second',
+      help: 'Recent ledger ingestion rate in ledgers per second',
       registers: [this.registry],
     });
   }
@@ -235,31 +224,8 @@ export class IndexerMetrics {
     this.circuitBreakerState.set(stateMap[state]);
   }
 
-  /** Set ingestion rate metrics. */
-  setIngestionRates(ledgersPerSec: number, txsPerSec: number, opsPerSec: number): void {
-    this.ingestionRateLedgersPerSec.set(ledgersPerSec);
-    this.ingestionRateTxsPerSec.set(txsPerSec);
-    this.ingestionRateOpsPerSec.set(opsPerSec);
-  }
-
-  /** Set error rate percentage (0-100). */
-  setErrorRatePercentage(percentage: number): void {
-    this.errorRatePercentage.set(Math.min(100, Math.max(0, percentage)));
-  }
-
-  /** Record an error by severity level. */
-  recordErrorBySeverity(severity: 'low' | 'medium' | 'high' | 'critical'): void {
-    this.errorsBySeverity.inc({ severity });
-  }
-
-  /** Record end-to-end latency. */
-  recordEndToEndLatency(durationSeconds: number): void {
-    this.endToEndLatency.observe(durationSeconds);
-  }
-
-  /** Record processing latency. */
-  recordProcessingLatency(durationSeconds: number): void {
-    this.processingLatency.observe(durationSeconds);
+  setLedgerIngestionRate(ledgersPerSecond: number): void {
+    this.ledgerIngestionRate.set(ledgersPerSecond);
   }
 
   /** Return the full Prometheus text exposition. */
