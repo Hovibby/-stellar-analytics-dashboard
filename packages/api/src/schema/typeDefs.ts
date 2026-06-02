@@ -4,7 +4,12 @@ export const typeDefs = gql`
   scalar DateTime
   scalar JSON
 
-  # Pagination types
+  # ── Pagination ─────────────────────────────────────────────────────────────
+  #
+  # GraphQL SDL does not support generics, so we define concrete Connection /
+  # Edge types for each entity that needs cursor-based pagination.
+  # All Connection types share the same PageInfo shape.
+
   type PageInfo {
     hasNextPage: Boolean!
     hasPreviousPage: Boolean!
@@ -12,18 +17,8 @@ export const typeDefs = gql`
     endCursor: String
   }
 
-  type Edge<T> {
-    cursor: String!
-    node: T!
-  }
+  # ── Core Stellar types ─────────────────────────────────────────────────────
 
-  type Connection<T> {
-    edges: [Edge<T>]!
-    pageInfo: PageInfo!
-    totalCount: Int!
-  }
-
-  # Core Stellar types
   type Asset {
     assetType: String!
     assetCode: String
@@ -75,7 +70,6 @@ export const typeDefs = gql`
     feeBumpTransaction: Boolean
     innerTransaction: Transaction
     operations: [Operation!]!
-    createdAt: DateTime!
     updatedAt: DateTime!
   }
 
@@ -91,7 +85,6 @@ export const typeDefs = gql`
     ledger: Int!
     operationIndex: Int!
     details: JSON!
-    createdAt: DateTime!
     updatedAt: DateTime!
   }
 
@@ -120,7 +113,65 @@ export const typeDefs = gql`
     updatedAt: DateTime!
   }
 
-  # Analytics types
+  # ── Concrete Connection / Edge types ───────────────────────────────────────
+
+  type LedgerEdge {
+    cursor: String!
+    node: Ledger!
+  }
+
+  type LedgerConnection {
+    edges: [LedgerEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type TransactionEdge {
+    cursor: String!
+    node: Transaction!
+  }
+
+  type TransactionConnection {
+    edges: [TransactionEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type OperationEdge {
+    cursor: String!
+    node: Operation!
+  }
+
+  type OperationConnection {
+    edges: [OperationEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type AccountEdge {
+    cursor: String!
+    node: Account!
+  }
+
+  type AccountConnection {
+    edges: [AccountEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type AssetEdge {
+    cursor: String!
+    node: Asset!
+  }
+
+  type AssetConnection {
+    edges: [AssetEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  # ── Analytics types ────────────────────────────────────────────────────────
+
   type NetworkMetrics {
     timestamp: DateTime!
     ledgerCount: Int!
@@ -159,7 +210,13 @@ export const typeDefs = gql`
     signers: Int!
   }
 
-  # Filter inputs
+  # ── Filter / pagination inputs ─────────────────────────────────────────────
+
+  """
+  Relay-style cursor pagination input.
+  Use \`first\` + \`after\` for forward pagination,
+  or \`last\` + \`before\` for backward pagination.
+  """
   input PaginationInput {
     first: Int
     after: String
@@ -199,67 +256,66 @@ export const typeDefs = gql`
     sourceAccount: String
   }
 
-  # Queries
+  # ── Queries ────────────────────────────────────────────────────────────────
+
   type Query {
-    # Ledger queries
+    # Ledger queries — cursor-based pagination via LedgerConnection
     ledgers(
       pagination: PaginationInput
       timeRange: TimeRangeInput
-    ): Connection<Ledger>!
-    
+    ): LedgerConnection!
+
     ledger(sequence: Int!): Ledger
 
-    # Transaction queries
+    # Transaction queries — cursor-based pagination via TransactionConnection
     transactions(
       pagination: PaginationInput
       timeRange: TimeRangeInput
       filter: TransactionFilterInput
-    ): Connection<Transaction>!
-    
+    ): TransactionConnection!
+
     transaction(hash: String!): Transaction
 
-    # Operation queries
+    # Operation queries — cursor-based pagination via OperationConnection
     operations(
       pagination: PaginationInput
       timeRange: TimeRangeInput
       filter: OperationFilterInput
-    ): Connection[Operation]!
-    
+    ): OperationConnection!
+
     operation(id: String!): Operation
 
-    # Account queries
+    # Account queries — cursor-based pagination via AccountConnection
     accounts(
       pagination: PaginationInput
       filter: AccountFilterInput
-    ): Connection[Account]!
-    
+    ): AccountConnection!
+
     account(accountId: String!): Account
 
-    # Asset queries
+    # Asset queries — cursor-based pagination via AssetConnection
     assets(
       pagination: PaginationInput
       filter: AssetFilterInput
-    ): Connection[Asset]!
-    
+    ): AssetConnection!
+
     asset(assetType: String!, assetCode: String, assetIssuer: String): Asset
 
     # Analytics queries
-    networkMetrics(
-      timeRange: TimeRangeInput
-    ): [NetworkMetrics!]!
-    
+    networkMetrics(timeRange: TimeRangeInput): [NetworkMetrics!]!
+
     assetMetrics(
       pagination: PaginationInput
       filter: AssetFilterInput
       timeRange: TimeRangeInput
     ): [AssetMetrics!]!
-    
+
     accountMetrics(
       accountId: String!
       timeRange: TimeRangeInput
     ): [AccountMetrics!]!
 
-    # Aggregation queries
+    # Aggregated network statistics
     stats: NetworkStats!
   }
 
@@ -281,7 +337,8 @@ export const typeDefs = gql`
     latestLedgerTime: DateTime!
   }
 
-  # Auth types
+  # ── Auth types ─────────────────────────────────────────────────────────────
+
   type User {
     id: ID!
     email: String!
@@ -311,7 +368,8 @@ export const typeDefs = gql`
     password: String!
   }
 
-  # Mutations
+  # ── Mutations ──────────────────────────────────────────────────────────────
+
   type Mutation {
     register(input: RegisterInput!): AuthPayload!
     login(input: LoginInput!): AuthPayload!
@@ -319,13 +377,14 @@ export const typeDefs = gql`
     revokeApiKey: Boolean!
   }
 
-  # Subscriptions for real-time updates
+  # ── Subscriptions ──────────────────────────────────────────────────────────
+
   type Subscription {
     ledgerAdded: Ledger!
     transactionAdded: Transaction!
     operationAdded: Operation!
     networkMetricsUpdated: NetworkMetrics!
-    
+
     # Filtered subscriptions
     transactionsForAccount(accountId: String!): Transaction!
     operationsForAccount(accountId: String!): Operation!

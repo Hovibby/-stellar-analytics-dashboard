@@ -94,6 +94,39 @@ export const TRANSACTIONS_QUERY = gql`
   }
 `;
 
+/**
+ * Export query — fetches up to 1 000 rows for the current filter set.
+ * Uses a separate operation name so it never merges with the paginated cache.
+ */
+export const TRANSACTIONS_EXPORT_QUERY = gql`
+  query ExportTransactions(
+    $first: Int
+    $timeRange: TimeRangeInput
+    $filter: TransactionFilterInput
+  ) {
+    transactions(
+      pagination: { first: $first }
+      timeRange: $timeRange
+      filter: $filter
+    ) {
+      edges {
+        node {
+          hash
+          successful
+          ledger
+          createdAt
+          sourceAccount
+          feeCharged
+          operationCount
+          memoType
+          memo
+        }
+      }
+      totalCount
+    }
+  }
+`;
+
 export const TRANSACTION_QUERY = gql`
   query GetTransaction($hash: String!) {
     transaction(hash: $hash) {
