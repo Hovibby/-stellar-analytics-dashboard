@@ -18,14 +18,37 @@ export class StellarService {
     });
   }
 
+  private static readonly MAX_RETRY_ATTEMPTS = 3;
+  private static readonly BACKOFF_BASE_MS = 200;
+
+  private async retryWithBackoff<T>(fn: () => Promise<T>): Promise<T> {
+    let attempt = 0;
+    while (true) {
+      try {
+        return await fn();
+      } catch (err) {
+        attempt += 1;
+        if (attempt >= StellarService.MAX_RETRY_ATTEMPTS) {
+          throw err;
+        }
+        const delayMs = StellarService.BACKOFF_BASE_MS * 2 ** (attempt - 1);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
+  private executeWithRetry<T>(fn: () => Promise<T>): Promise<T> {
+    return this.circuitBreaker.execute(() => this.retryWithBackoff(fn));
+  }
+
   async getLatestLedger(): Promise<Horizon.ServerApi.LedgerRecord> {
-    return this.circuitBreaker.execute(() =>
+    return this.executeWithRetry(() =>
       this.server.ledgers().order('desc').limit(1).call()
     );
   }
 
   async getLedgers(cursor?: string, limit: number = 200): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.LedgerRecord>> {
-    return this.circuitBreaker.execute(() => {
+    return this.executeWithRetry(() => {
       let builder = this.server.ledgers().order('desc').limit(limit);
       if (cursor) {
         builder = builder.cursor(cursor);
@@ -35,13 +58,13 @@ export class StellarService {
   }
 
   async getLedger(sequence: number): Promise<Horizon.ServerApi.LedgerRecord> {
-    return this.circuitBreaker.execute(() =>
+    return this.executeWithRetry(() =>
       this.server.ledgers().ledger(sequence).call()
     );
   }
 
   async getTransactionsForLedger(ledgerSequence: number): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.TransactionRecord>> {
-    return this.circuitBreaker.execute(() =>
+    return this.executeWithRetry(() =>
       this.server.transactions()
         .forLedger(ledgerSequence)
         .order('asc')
@@ -51,7 +74,7 @@ export class StellarService {
   }
 
   async getTransactions(cursor?: string, limit: number = 200): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.TransactionRecord>> {
-    return this.circuitBreaker.execute(() => {
+    return this.executeWithRetry(() => {
       let builder = this.server.transactions().order('desc').limit(limit);
       if (cursor) {
         builder = builder.cursor(cursor);
@@ -61,13 +84,13 @@ export class StellarService {
   }
 
   async getTransaction(hash: string): Promise<Horizon.ServerApi.TransactionRecord> {
-    return this.circuitBreaker.execute(() =>
+    return this.executeWithRetry(() =>
       this.server.transactions().transaction(hash).call()
     );
   }
 
   async getOperationsForTransaction(transactionHash: string): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.OperationRecord>> {
-    return this.circuitBreaker.execute(() =>
+    return this.executeWithRetry(() =>
       this.server.operations()
         .forTransaction(transactionHash)
         .order('asc')
@@ -77,7 +100,7 @@ export class StellarService {
   }
 
   async getOperations(cursor?: string, limit: number = 200): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.OperationRecord>> {
-    return this.circuitBreaker.execute(() => {
+    return this.executeWithRetry(() => {
       let builder = this.server.operations().order('desc').limit(limit);
       if (cursor) {
         builder = builder.cursor(cursor);
@@ -87,7 +110,7 @@ export class StellarService {
   }
 
   async getOperationsForLedger(ledgerSequence: number): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.OperationRecord>> {
-    return this.circuitBreaker.execute(() =>
+    return this.executeWithRetry(() =>
       this.server.operations()
         .forLedger(ledgerSequence)
         .order('asc')
@@ -97,13 +120,13 @@ export class StellarService {
   }
 
   async getAccount(accountId: string): Promise<Horizon.ServerApi.AccountRecord> {
-    return this.circuitBreaker.execute(() =>
+    return this.executeWithRetry(() =>
       this.server.accounts().accountId(accountId).call()
     );
   }
 
   async getAccountTransactions(accountId: string, cursor?: string, limit: number = 200): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.TransactionRecord>> {
-    return this.circuitBreaker.execute(() => {
+    return this.executeWithRetry(() => {
       let builder = this.server.transactions()
         .forAccount(accountId)
         .order('desc')
@@ -116,7 +139,7 @@ export class StellarService {
   }
 
   async getAccountOperations(accountId: string, cursor?: string, limit: number = 200): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.OperationRecord>> {
-    return this.circuitBreaker.execute(() => {
+    return this.executeWithRetry(() => {
       let builder = this.server.operations()
         .forAccount(accountId)
         .order('desc')
@@ -129,7 +152,7 @@ export class StellarService {
   }
 
   async getAssets(cursor?: string, limit: number = 200): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.AssetRecord>> {
-    return this.circuitBreaker.execute(() => {
+    return this.executeWithRetry(() => {
       let builder = this.server.assets().order('asc').limit(limit);
       if (cursor) {
         builder = builder.cursor(cursor);
@@ -139,7 +162,7 @@ export class StellarService {
   }
 
   async getTrades(cursor?: string, limit: number = 200): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.TradeRecord>> {
-    return this.circuitBreaker.execute(() => {
+    return this.executeWithRetry(() => {
       let builder = this.server.trades().order('desc').limit(limit);
       if (cursor) {
         builder = builder.cursor(cursor);
@@ -149,7 +172,7 @@ export class StellarService {
   }
 
   async getEffects(cursor?: string, limit: number = 200): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.EffectRecord>> {
-    return this.circuitBreaker.execute(() => {
+    return this.executeWithRetry(() => {
       let builder = this.server.effects().order('desc').limit(limit);
       if (cursor) {
         builder = builder.cursor(cursor);
@@ -159,7 +182,7 @@ export class StellarService {
   }
 
   async getPayments(cursor?: string, limit: number = 200): Promise<Horizon.ServerApi.CollectionPage<Horizon.ServerApi.PaymentOperationRecord>> {
-    return this.circuitBreaker.execute(() => {
+    return this.executeWithRetry(() => {
       let builder = this.server.payments().order('desc').limit(limit);
       if (cursor) {
         builder = builder.cursor(cursor);
