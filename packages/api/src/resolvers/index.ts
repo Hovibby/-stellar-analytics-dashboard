@@ -2,50 +2,51 @@ import { ledgerResolvers } from './ledgers';
 import { transactionResolvers } from './transactions';
 import { analyticsResolvers } from './analytics';
 import { pubsub, EVENTS } from '../pubsub';
-import { authService, User } from '../services/auth';
+import { authService } from '../services/auth';
 import { db } from '../database/connection';
+import { ValidationService } from '../services/validation';
 
 export const resolvers = {
   Query: {
     ...ledgerResolvers.Query,
     ...transactionResolvers.Query,
     ...analyticsResolvers.Query,
-    me: async (_: any, __: any, context: any) => {
-      if (!context.user) {
-        return null;
+    me: withResolverLogging(
+      'Query.me',
+      async (_: any, __: any, context: any) => {
+        if (!context.user) {
+          return null;
+        }
+        return context.user;
       }
-      return context.user;
-    },
+    ),
   },
   Mutation: {
-    register: async (_: any, args: { input: { email: string; password: string; name: string } }, context: any) => {
-      const { email, password, name } = args.input;
+    register: async (_: any, args: { input: unknown }) => {
+      // Issue #125 – Validate mutation input with Zod before processing
+      const { email, password, name } = ValidationService.validateRegisterInput(args.input);
 
       const existing = await db.queryOne('SELECT id FROM users WHERE email = $1', [email]);
       if (existing) {
         throw new Error('User with this email already exists');
       }
 
-      const hashedPassword = await authService.hashPassword(password);
-      const apiKey = authService.generateApiKey();
+        const existing = await db.queryOne('SELECT id FROM users WHERE email = $1', [email]);
+        if (existing) {
+          throw new NotFoundError('User with this email already exists');
+        }
 
-      const user = await db.queryOne(
-        `INSERT INTO users (email, password_hash, name, role, api_key, created_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())
-         RETURNING id, email, name, role, api_key, created_at`,
-        [email, hashedPassword, name, 'viewer', apiKey]
-      );
+        const hashedPassword = await authService.hashPassword(password);
+        const apiKey = authService.generateApiKey();
 
-      const token = authService.generateToken({
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        createdAt: user.created_at,
-      });
+        const user = await db.queryOne(
+          `INSERT INTO users (email, password_hash, name, role, api_key, created_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           RETURNING id, email, name, role, api_key, created_at`,
+          [email, hashedPassword, name, 'viewer', apiKey]
+        );
 
-      return {
-        user: {
+        const token = authService.generateToken({
           id: user.id,
           email: user.email,
           name: user.name,
@@ -55,33 +56,47 @@ export const resolvers = {
         token,
       };
     },
-    login: async (_: any, args: { input: { email: string; password: string } }, context: any) => {
-      const { email, password } = args.input;
+    login: async (_: any, args: { input: unknown }) => {
+      // Issue #125 – Validate mutation input with Zod before processing
+      const { email, password } = ValidationService.validateLoginInput(args.input);
 
       const user = await db.queryOne(
         'SELECT id, email, password_hash, name, role, api_key, created_at FROM users WHERE email = $1',
         [email]
       );
 
-      if (!user) {
-        throw new Error('Invalid email or password');
+        return {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            createdAt: user.created_at,
+          },
+          token,
+        };
       }
+    ),
+    login: withResolverLogging(
+      'Mutation.login',
+      async (_: any, args: { input: { email: string; password: string } }, context: any) => {
+        const { email, password } = args.input;
 
-      const valid = await authService.verifyPassword(password, user.password_hash);
-      if (!valid) {
-        throw new Error('Invalid email or password');
-      }
+        const user = await db.queryOne(
+          'SELECT id, email, password_hash, name, role, api_key, created_at FROM users WHERE email = $1',
+          [email]
+        );
 
-      const token = authService.generateToken({
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        createdAt: user.created_at,
-      });
+        if (!user) {
+          throw new AuthError('Invalid email or password');
+        }
 
-      return {
-        user: {
+        const valid = await authService.verifyPassword(password, user.password_hash);
+        if (!valid) {
+          throw new AuthError('Invalid email or password');
+        }
+
+        const token = authService.generateToken({
           id: user.id,
           email: user.email,
           name: user.name,
@@ -92,12 +107,20 @@ export const resolvers = {
       };
     },
     generateApiKey: async (_: any, __: any, context: any) => {
+      // Issue #125 – Authentication guard (no user-supplied input to validate here)
       if (!context.user) {
         throw new Error('Authentication required');
       }
+    ),
+    generateApiKey: withResolverLogging(
+      'Mutation.generateApiKey',
+      async (_: any, __: any, context: any) => {
+        if (!context.user) {
+          throw new AuthError();
+        }
 
-      const apiKey = authService.generateApiKey();
-      await db.query('UPDATE users SET api_key = $1 WHERE id = $2', [apiKey, context.user.id]);
+        const apiKey = authService.generateApiKey();
+        await db.query('UPDATE users SET api_key = $1 WHERE id = $2', [apiKey, context.user.id]);
 
       return {
         apiKey,
@@ -105,13 +128,22 @@ export const resolvers = {
       };
     },
     revokeApiKey: async (_: any, __: any, context: any) => {
+      // Issue #125 – Authentication guard (no user-supplied input to validate here)
       if (!context.user) {
         throw new Error('Authentication required');
       }
+    ),
+    revokeApiKey: withResolverLogging(
+      'Mutation.revokeApiKey',
+      async (_: any, __: any, context: any) => {
+        if (!context.user) {
+          throw new AuthError();
+        }
 
-      await db.query('UPDATE users SET api_key = NULL WHERE id = $1', [context.user.id]);
-      return true;
-    },
+        await db.query('UPDATE users SET api_key = NULL WHERE id = $1', [context.user.id]);
+        return true;
+      }
+    ),
   },
   Subscription: {
     ledgerAdded: {

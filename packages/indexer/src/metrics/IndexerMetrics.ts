@@ -12,17 +12,18 @@
  *   - indexer_errors_total                     (counter, labelled by type)
  *   - indexer_validation_failures_total        (counter, labelled by entity)
  *   - indexer_idempotency_skips_total          (counter)
- *   - indexer_websocket_reconnections_total    (counter)
+ *   - indexer_retries_total                    (counter, labelled by operation)
+ *   - indexer_dlq_enqueued_total               (counter)
  *   - indexer_cycle_duration_seconds           (histogram)
  *   - indexer_db_write_duration_seconds        (histogram, labelled by table)
  *   - indexer_horizon_request_duration_seconds (histogram, labelled by endpoint)
+ *   - indexer_entity_processing_duration_seconds (histogram, labelled by entity)
+ *   - indexer_batch_size                       (histogram, labelled by type)
  *   - indexer_circuit_breaker_state            (gauge: 0=CLOSED,1=HALF_OPEN,2=OPEN)
  *   - indexer_queue_depth                      (gauge)
  *   - indexer_last_processed_ledger_sequence   (gauge)
- *   - indexer_horizon_requests_total           (counter, labelled by endpoint)
- *   - indexer_horizon_request_errors_total     (counter, labelled by endpoint)
- *   - indexer_db_write_errors_total            (counter, labelled by table)
- *   - indexer_ledger_ingestion_rate_per_second (gauge)
+ *   - indexer_backfill_progress                (gauge)
+ *   - indexer_dlq_depth                        (gauge)
  */
 
 import {
@@ -45,22 +46,28 @@ export class IndexerMetrics {
   readonly validationFailures: Counter<string>;
   readonly idempotencySkips: Counter<string>;
   readonly websocketReconnections: Counter<string>;
-  readonly horizonRequestsTotal: Counter<string>;
-  readonly horizonRequestErrorsTotal: Counter<string>;
-  readonly dbWriteErrorsTotal: Counter<string>;
+  /** Retry attempts per operation type (e.g. fetch_ledger, db_write) */
+  readonly retriesTotal: Counter<string>;
+  /** Items enqueued to the dead letter queue */
+  readonly dlqEnqueued: Counter<string>;
 
   // Histograms
   readonly cycleDuration: Histogram<string>;
   readonly dbWriteDuration: Histogram<string>;
   readonly horizonRequestDuration: Histogram<string>;
-  readonly endToEndLatency: Histogram<string>;
-  readonly processingLatency: Histogram<string>;
+  /** Per-entity processing latency (ledger | transaction | operation) */
+  readonly entityProcessingDuration: Histogram<string>;
+  /** Number of items in each processing batch */
+  readonly batchSize: Histogram<string>;
 
   // Gauges
   readonly circuitBreakerState: Gauge<string>;
   readonly queueDepth: Gauge<string>;
   readonly lastProcessedLedger: Gauge<string>;
-  readonly ledgerIngestionRate: Gauge<string>;
+  /** Backfill progress: 0–100 (percentage of target range completed) */
+  readonly backfillProgress: Gauge<string>;
+  /** Current number of items sitting in the dead letter queue */
+  readonly dlqDepth: Gauge<string>;
 
   private constructor() {
     this.registry = new Registry();
@@ -116,24 +123,16 @@ export class IndexerMetrics {
       registers: [this.registry],
     });
 
-    this.horizonRequestsTotal = new Counter({
-      name: 'indexer_horizon_requests_total',
-      help: 'Total number of Horizon API requests by endpoint',
-      labelNames: ['endpoint'] as const,
+    this.retriesTotal = new Counter({
+      name: 'indexer_retries_total',
+      help: 'Total number of retry attempts per operation type',
+      labelNames: ['operation'] as const,
       registers: [this.registry],
     });
 
-    this.horizonRequestErrorsTotal = new Counter({
-      name: 'indexer_horizon_request_errors_total',
-      help: 'Total number of Horizon API request failures by endpoint',
-      labelNames: ['endpoint'] as const,
-      registers: [this.registry],
-    });
-
-    this.dbWriteErrorsTotal = new Counter({
-      name: 'indexer_db_write_errors_total',
-      help: 'Total number of database write failures by table',
-      labelNames: ['table'] as const,
+    this.dlqEnqueued = new Counter({
+      name: 'indexer_dlq_enqueued_total',
+      help: 'Total number of items enqueued to the dead letter queue',
       registers: [this.registry],
     });
 
@@ -163,19 +162,19 @@ export class IndexerMetrics {
       registers: [this.registry],
     });
 
-    // Issue #139 – End-to-end latency histogram
-    this.endToEndLatency = new Histogram({
-      name: 'indexer_end_to_end_latency_seconds',
-      help: 'End-to-end latency from ledger receipt to processing completion in seconds',
-      buckets: [0.5, 1, 2, 5, 10, 30, 60],
+    this.entityProcessingDuration = new Histogram({
+      name: 'indexer_entity_processing_duration_seconds',
+      help: 'End-to-end processing latency per entity type (ledger, transaction, operation)',
+      labelNames: ['entity'] as const,
+      buckets: [0.005, 0.01, 0.05, 0.1, 0.5, 1, 2],
       registers: [this.registry],
     });
 
-    // Issue #139 – Processing latency histogram
-    this.processingLatency = new Histogram({
-      name: 'indexer_processing_latency_seconds',
-      help: 'Time taken to process a ledger in seconds',
-      buckets: [0.1, 0.5, 1, 2, 5, 10],
+    this.batchSize = new Histogram({
+      name: 'indexer_batch_size',
+      help: 'Number of items in each processing batch',
+      labelNames: ['type'] as const,
+      buckets: [1, 5, 10, 25, 50, 100, 200],
       registers: [this.registry],
     });
 
@@ -200,9 +199,15 @@ export class IndexerMetrics {
       registers: [this.registry],
     });
 
-    this.ledgerIngestionRate = new Gauge({
-      name: 'indexer_ledger_ingestion_rate_per_second',
-      help: 'Recent ledger ingestion rate in ledgers per second',
+    this.backfillProgress = new Gauge({
+      name: 'indexer_backfill_progress',
+      help: 'Backfill completion percentage (0–100)',
+      registers: [this.registry],
+    });
+
+    this.dlqDepth = new Gauge({
+      name: 'indexer_dlq_depth',
+      help: 'Current number of items in the dead letter queue',
       registers: [this.registry],
     });
   }
@@ -224,8 +229,14 @@ export class IndexerMetrics {
     this.circuitBreakerState.set(stateMap[state]);
   }
 
-  setLedgerIngestionRate(ledgersPerSecond: number): void {
-    this.ledgerIngestionRate.set(ledgersPerSecond);
+  /**
+   * Update backfill progress gauge.
+   * @param processed Number of ledgers processed so far in the backfill range.
+   * @param total     Total ledgers in the backfill range.
+   */
+  setBackfillProgress(processed: number, total: number): void {
+    if (total <= 0) return;
+    this.backfillProgress.set(Math.min(100, (processed / total) * 100));
   }
 
   /** Return the full Prometheus text exposition. */

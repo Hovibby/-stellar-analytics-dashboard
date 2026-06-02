@@ -1,6 +1,6 @@
 /**
  * ExportControls component
- * 
+ *
  * Provides UI for:
  * - Export format selection (CSV/JSON)
  * - Date range selection
@@ -8,6 +8,7 @@
  */
 import { useState } from 'react';
 import { ExportFormat, exportData, generateFilename } from '../utils/exportUtils';
+import { useTranslation } from 'react-i18next';
 
 interface ExportControlsProps {
   data: any[];
@@ -21,6 +22,7 @@ interface DateRange {
 }
 
 export function ExportControls({ data, baseFilename, disabled = false }: ExportControlsProps) {
+  const { t } = useTranslation();
   const [format, setFormat] = useState<ExportFormat>('csv');
   const [dateRange, setDateRange] = useState<DateRange>({
     start: new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hours ago
@@ -31,7 +33,7 @@ export function ExportControls({ data, baseFilename, disabled = false }: ExportC
 
   const handleExport = async () => {
     if (data.length === 0) return;
-    
+
     setIsExporting(true);
     setExportProgress(0);
 
@@ -46,7 +48,7 @@ export function ExportControls({ data, baseFilename, disabled = false }: ExportC
       }
 
       const filename = generateFilename(baseFilename);
-      
+
       await exportData(filteredData, {
         format,
         filename,
@@ -54,7 +56,7 @@ export function ExportControls({ data, baseFilename, disabled = false }: ExportC
       });
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Export failed. Please try again.');
+      alert(t('errors.exportFailed'));
     } finally {
       setIsExporting(false);
       setExportProgress(0);
@@ -64,33 +66,34 @@ export function ExportControls({ data, baseFilename, disabled = false }: ExportC
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
       {/* Format selection */}
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-        Format:
-      </label>
-      <select
-        value={format}
-        onChange={(e) => setFormat(e.target.value as ExportFormat)}
-        disabled={isExporting || disabled}
-        style={{
-          padding: '6px 10px',
-          borderRadius: '6px',
-          border: '1px solid var(--color-border)',
-          fontSize: '13px',
-          cursor: isExporting || disabled ? 'not-allowed' : 'pointer',
-          background: isExporting || disabled ? 'var(--color-input-disabled)' : 'var(--color-input-bg)',
-          color: 'var(--color-text-primary)',
-        }}
-      >
-        <option value="csv">CSV</option>
-        <option value="json">JSON</option>
-      </select>
-    </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+          {t('export.format')}:
+        </label>
+        <select
+          value={format}
+          onChange={(e) => setFormat(e.target.value as ExportFormat)}
+          disabled={isExporting || disabled}
+          style={{
+            padding: '6px 10px',
+            borderRadius: '6px',
+            border: '1px solid var(--color-border)',
+            fontSize: '13px',
+            cursor: isExporting || disabled ? 'not-allowed' : 'pointer',
+            background:
+              isExporting || disabled ? 'var(--color-input-disabled)' : 'var(--color-input-bg)',
+            color: 'var(--color-text-primary)',
+          }}
+        >
+          <option value="csv">CSV</option>
+          <option value="json">JSON</option>
+        </select>
+      </div>
 
       {/* Date range selection */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-          From:
+          {t('export.from')}:
         </label>
         <input
           type="datetime-local"
@@ -108,7 +111,7 @@ export function ExportControls({ data, baseFilename, disabled = false }: ExportC
           }}
         />
         <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-          To:
+          {t('export.to')}:
         </label>
         <input
           type="datetime-local"
@@ -148,10 +151,10 @@ export function ExportControls({ data, baseFilename, disabled = false }: ExportC
         {isExporting ? (
           <>
             <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>↻</span>
-            Exporting {exportProgress}%
+            {t('export.exporting')} {exportProgress}%
           </>
         ) : (
-          'Export Data'
+          t('export.exportData')
         )}
       </button>
 

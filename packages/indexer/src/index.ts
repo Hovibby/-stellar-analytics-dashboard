@@ -116,6 +116,56 @@ class IndexerApp {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ message: 'Circuit breaker reset to CLOSED', timestamp: new Date().toISOString() }));
 
+      // ── POST /backfill (manual backfill from sequence) ───────────────────
+      } else if (req.url === '/backfill' && req.method === 'POST') {
+        try {
+          const adminToken = process.env.BACKFILL_ADMIN_TOKEN;
+
+          let body = '';
+          req.on('data', (chunk: any) => { body += chunk; });
+          req.on('end', async () => {
+            try {
+              const payload = body ? JSON.parse(body) : {};
+              const startSequence = Number(payload.startSequence ?? payload.start ?? payload.sequence);
+              const endSequence = payload.endSequence !== undefined ? Number(payload.endSequence) : undefined;
+
+              // If an admin token is configured, require it in the Authorization header or payload
+              if (adminToken) {
+                const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+                const provided = authHeader && String(authHeader).startsWith('Bearer ')
+                  ? String(authHeader).slice(7)
+                  : payload.token || payload.adminToken;
+
+                if (!provided || provided !== adminToken) {
+                  res.writeHead(401, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ error: 'unauthorized' }));
+                  return;
+                }
+              }
+
+              if (!Number.isFinite(startSequence) || startSequence <= 0) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'startSequence must be a positive integer' }));
+                return;
+              }
+
+              // Fire-and-forget: start backfill but respond immediately
+              this.indexerService.backfillFromSequence(startSequence, endSequence).catch((err: any) => {
+                console.error('[indexer] manual backfill failed:', err);
+              });
+
+              res.writeHead(202, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ message: 'Backfill started', startSequence, endSequence, timestamp: new Date().toISOString() }));
+            } catch (err: any) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'invalid JSON payload', detail: err.message }));
+            }
+          });
+        } catch (err: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+
       } else {
         res.writeHead(404);
         res.end();

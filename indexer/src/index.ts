@@ -2,6 +2,7 @@ import "dotenv/config";
 import http from "http";
 import { Pool } from "pg";
 import { Horizon } from "@stellar/stellar-sdk";
+import { STELLAR_NETWORKS, type StellarNetwork } from "@stellar-analytics/shared";
 import { pollLatestLedger } from "./ingester.js";
 import {
   normalizeLedger,
@@ -11,14 +12,17 @@ import {
 } from "./transformer.js";
 import { writeIngestedData, type BatchMetrics } from "./loader.js";
 import { broadcastRealtimeUpdate } from "./websocket.js";
-import { validateConfig } from "./config.js";
+import { validateConfig, type StellarNetwork } from "./config.js";
 import { indexerLogger } from "./logger.js";
-import http from "http";
+import { initializeAlertService, alertService } from "./alerting/index.js";
 
 // ---------------------------------------------------------------------------
 // Validate configuration on startup – fails fast with clear error messages
 // ---------------------------------------------------------------------------
 const config = validateConfig();
+
+// Initialize alerting service (Issue #143)
+initializeAlertService(config.alerting);
 
 const pool = config.databaseUrl
   ? new Pool({ connectionString: config.databaseUrl })
@@ -26,13 +30,9 @@ const pool = config.databaseUrl
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-const network = (process.env.STELLAR_NETWORK ?? "testnet") as StellarNetwork;
-const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS ?? "5000", 10);
+const network: StellarNetwork = config.network;
+const POLL_INTERVAL_MS = config.pollIntervalMs;
 const BATCH_PERF_WARN_MS = parseInt(process.env.BATCH_PERF_WARN_MS ?? "2000", 10);
-
-const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL })
-  : null;
 
 // ── State tracking (for health check — issue #42) ─────────────────────────────
 
@@ -47,6 +47,10 @@ interface IndexerState {
   lastErrorAt: Date | null;
   lastBatchMetrics: BatchMetrics | null;
   isShuttingDown: boolean;
+  // Alert tracking to prevent alert spam (Issue #143)
+  lastHighErrorRateAlertAt: Date | null;
+  lastDatabaseErrorAlertAt: Date | null;
+  lastHorizonErrorAlertAt: Date | null;
 }
 
 const state: IndexerState = {
@@ -60,6 +64,9 @@ const state: IndexerState = {
   lastErrorAt: null,
   lastBatchMetrics: null,
   isShuttingDown: false,
+  lastHighErrorRateAlertAt: null,
+  lastDatabaseErrorAlertAt: null,
+  lastHorizonErrorAlertAt: null,
 };
 
 // ── Health helpers (issue #42) ────────────────────────────────────────────────
@@ -75,8 +82,19 @@ async function checkDatabaseHealth(): Promise<{
     const client = await pool.connect();
     await client.query("SELECT 1");
     client.release();
+    state.lastDatabaseErrorAlertAt = null; // Reset alert tracking on success
     return { ok: true, latencyMs: Date.now() - start };
   } catch (err: any) {
+    // Alert on database errors (with cooldown to prevent spam)
+    const now = new Date();
+    if (
+      alertService &&
+      state.lastDatabaseErrorAlertAt &&
+      now.getTime() - state.lastDatabaseErrorAlertAt.getTime() > 5 * 60 * 1000 // 5 minute cooldown
+    ) {
+      await alertService.alertDatabaseError(err, "health check failed");
+      state.lastDatabaseErrorAlertAt = now;
+    }
     return { ok: false, error: err?.message ?? String(err) };
   }
 }
@@ -87,15 +105,26 @@ async function checkHorizonHealth(): Promise<{
   latencyMs?: number;
   error?: string;
 }> {
-  const config = STELLAR_NETWORKS[network];
-  const server = new Horizon.Server(config.horizonUrl);
+  const horizonConfig = STELLAR_NETWORKS[network];
+  const server = new Horizon.Server(horizonConfig.horizonUrl);
   const start = Date.now();
   try {
     const ledgers = await server.ledgers().order("desc").limit(1).call();
     const seq: number = ledgers.records[0]?.sequence ?? 0;
     state.latestHorizonLedger = seq;
+    state.lastHorizonErrorAlertAt = null; // Reset alert tracking on success
     return { ok: true, latestLedger: seq, latencyMs: Date.now() - start };
   } catch (err: any) {
+    // Alert on Horizon errors (with cooldown to prevent spam)
+    const now = new Date();
+    if (
+      alertService &&
+      state.lastHorizonErrorAlertAt &&
+      now.getTime() - state.lastHorizonErrorAlertAt.getTime() > 5 * 60 * 1000 // 5 minute cooldown
+    ) {
+      await alertService.alertCircuitBreakerOpen("Horizon API", err?.message ?? String(err));
+      state.lastHorizonErrorAlertAt = now;
+    }
     return { ok: false, error: err?.message ?? String(err) };
   }
 }
@@ -165,11 +194,40 @@ async function runCycle(): Promise<void> {
       `[indexer] processed ledger ${normalizedData.ledger.sequence} ` +
         `(${metrics.totalTransactions} txs, ${metrics.durationMs}ms)`
     );
+
+    // Check and alert on high error rate (Issue #143)
+    const errorRate = computeErrorRate();
+    if (
+      alertService &&
+      config.alerting.thresholds?.errorRatePercent &&
+      errorRate > config.alerting.thresholds.errorRatePercent
+    ) {
+      const now = new Date();
+      if (
+        !state.lastHighErrorRateAlertAt ||
+        now.getTime() - state.lastHighErrorRateAlertAt.getTime() > 10 * 60 * 1000 // 10 minute cooldown
+      ) {
+        await alertService.alertHighErrorRate(
+          errorRate,
+          state.cycleCount,
+          state.errorCount
+        );
+        state.lastHighErrorRateAlertAt = now;
+      }
+    }
   } catch (error: any) {
     state.errorCount++;
     state.lastError = error?.message ?? String(error);
     state.lastErrorAt = new Date();
     console.error("[indexer] cycle error:", error);
+
+    // Alert on cycle error (Issue #143)
+    if (alertService) {
+      await alertService.alertLedgerProcessingError(
+        state.latestHorizonLedger ?? 0,
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
   }
 }
 
@@ -277,6 +335,11 @@ async function shutdown(signal: string): Promise<void> {
   state.isShuttingDown = true;
 
   console.log(`\n[indexer] received ${signal} — starting graceful shutdown`);
+
+  // Send alert on shutdown (Issue #143)
+  if (alertService) {
+    await alertService.alertGracefulShutdown(signal);
+  }
 
   // 1. Stop accepting new polling cycles
   if (pollingTimer !== null) {

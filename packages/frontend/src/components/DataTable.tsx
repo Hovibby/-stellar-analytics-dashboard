@@ -64,6 +64,11 @@ export function DataTable<T>({
 
   const skeletonRows = [...Array(5)];
 
+  // Varying skeleton widths to simulate realistic data shapes
+  const skeletonWidths = ['w-3/4', 'w-1/2', 'w-2/3', 'w-5/6', 'w-1/3', 'w-4/5'];
+  const skeletonWidth = (row: number, col: number) =>
+    skeletonWidths[(row * 3 + col * 2) % skeletonWidths.length];
+
   return (
     <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
 
@@ -148,7 +153,13 @@ export function DataTable<T>({
                 <tr key={i} aria-hidden="true">
                   {columns.map((_, j) => (
                     <td key={j} className="px-4 py-3 lg:px-6 lg:py-4">
-                      <div className="h-4 bg-muted rounded w-3/4 animate-pulse" />
+                      <div
+                        className={clsx(
+                          'h-4 bg-muted rounded animate-pulse',
+                          skeletonWidth(i, j)
+                        )}
+                        style={{ animationDelay: `${i * 80}ms` }}
+                      />
                     </td>
                   ))}
                 </tr>
@@ -201,10 +212,13 @@ export function DataTable<T>({
       <div className="sm:hidden divide-y divide-border" aria-label={caption} aria-busy={loading}>
         {loading ? (
           skeletonRows.map((_, i) => (
-            <div key={i} className="p-4 space-y-2 animate-pulse" aria-hidden="true">
-              <div className="h-4 bg-muted rounded w-2/3" />
-              <div className="h-3 bg-muted rounded w-1/2" />
-              <div className="h-3 bg-muted rounded w-3/4" />
+            <div key={i} className="p-4 space-y-2" aria-hidden="true" style={{ animationDelay: `${i * 80}ms` }}>
+              <div className="flex items-center justify-between gap-2">
+                <div className={clsx('h-4 bg-muted rounded animate-pulse', skeletonWidths[(i * 2) % skeletonWidths.length])} />
+                <div className="h-4 w-4 bg-muted rounded animate-pulse" />
+              </div>
+              <div className={clsx('h-3 bg-muted rounded animate-pulse', skeletonWidths[(i * 2 + 1) % skeletonWidths.length])} />
+              <div className={clsx('h-3 bg-muted rounded animate-pulse', skeletonWidths[(i * 2 + 3) % skeletonWidths.length])} />
             </div>
           ))
         ) : data.length === 0 ? (

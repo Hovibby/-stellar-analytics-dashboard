@@ -44,7 +44,7 @@ const LOG_DIR = process.env.LOG_DIR ?? path.join(__dirname, "..", "logs");
  * In development (LOG_PRETTY=true) we use pino-pretty for coloured output.
  * In production we write structured JSON to both stdout and a rotating file.
  */
-function buildTransport(): LoggerOptions["transport"] {
+function buildTransport(): NonNullable<LoggerOptions["transport"]> {
   if (LOG_PRETTY) {
     return {
       target: "pino-pretty",

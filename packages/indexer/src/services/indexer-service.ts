@@ -7,7 +7,7 @@
  *   #34 – WebSocket reconnection with exponential backoff
  *   #37 – Rate limiting for Horizon API
  *   #39 – Data validation via Zod schemas before any DB write
- *   #41 – Circuit breaker wrapping all Horizon API calls
+ *   #41 – Circuit breaker wrapping all Horizon API calls (in StellarService)
  *   #43 – Prometheus metrics for every significant operation
  *   #44 – Idempotency: skip already-processed ledgers
  *   #36 – Dead letter queue for failed ledger recovery
@@ -17,7 +17,7 @@ import { Horizon } from '@stellar/stellar-sdk';
 import { StellarService } from './stellar-service';
 import { db } from '../database/connection';
 import { INDEXER, PAYMENT_OPERATIONS, DEX_OPERATIONS } from '@stellar-analytics/shared';
-import { CircuitBreaker, CircuitOpenError } from '../circuit-breaker/CircuitBreaker';
+import { CircuitOpenError } from '../circuit-breaker/CircuitBreaker';
 import { metrics } from '../metrics/IndexerMetrics';
 import { IdempotencyTracker } from '../idempotency/IdempotencyTracker';
 import { RateLimiter } from '../rate-limiter/RateLimiter';
@@ -37,19 +37,11 @@ export class IndexerService {
   private lastLedgerProcessedAt: number | null = null;
   private websocketReconnectAttempts: number = 0;
 
-  private readonly circuitBreaker: CircuitBreaker;
   private readonly idempotency: IdempotencyTracker;
   private readonly rateLimiter: RateLimiter;
 
   constructor(stellarService: StellarService) {
     this.stellarService = stellarService;
-
-    this.circuitBreaker = new CircuitBreaker({
-      name: 'HorizonAPI',
-      failureThreshold: 5,
-      cooldownMs: 5 * 60 * 1000, // 5 minutes
-      successThreshold: 2,
-    });
 
     // Issue #37 – Rate limiter for Horizon API: 2000 requests per minute
     this.rateLimiter = new RateLimiter({
@@ -118,19 +110,10 @@ export class IndexerService {
       console.log(`[indexer] resuming from ledgers table at ledger ${this.lastProcessedLedger}`);
     } else {
       // Issue #37 – Apply rate limiter to Horizon API calls
-      metrics.horizonRequestsTotal.inc({ endpoint: 'latest_ledger' });
-      try {
-        const horizonLatest = await this.circuitBreaker.execute(() =>
-          this.rateLimiter.consume().then(() => this.stellarService.getLatestLedger()),
-        );
-        this.lastProcessedLedger = horizonLatest.sequence - 1;
-        console.log(`[indexer] starting fresh from ledger ${this.lastProcessedLedger}`);
-      } catch (err) {
-        if (!(err instanceof CircuitOpenError)) {
-          metrics.horizonRequestErrorsTotal.inc({ endpoint: 'latest_ledger' });
-        }
-        throw err;
-      }
+      await this.rateLimiter.consume();
+      const horizonLatest = await this.stellarService.getLatestLedger();
+      this.lastProcessedLedger = horizonLatest.sequence - 1;
+      console.log(`[indexer] starting fresh from ledger ${this.lastProcessedLedger}`);
     }
 
     metrics.lastProcessedLedger.set(this.lastProcessedLedger);
@@ -189,10 +172,8 @@ export class IndexerService {
     let horizonLatest: Horizon.ServerApi.LedgerRecord;
     try {
       // Issue #37 – Apply rate limiter to Horizon API calls
-      metrics.horizonRequestsTotal.inc({ endpoint: 'latest_ledger' });
-      horizonLatest = await this.circuitBreaker.execute(() =>
-        this.rateLimiter.consume().then(() => this.stellarService.getLatestLedger()),
-      );
+      await this.rateLimiter.consume();
+      horizonLatest = await this.stellarService.getLatestLedger();
     } catch (err) {
       if (err instanceof CircuitOpenError) {
         console.warn('[indexer] circuit open – skipping backfill');
@@ -205,6 +186,42 @@ export class IndexerService {
     if (this.lastProcessedLedger < horizonLatest.sequence - 10) {
       await this.backfillLedgers(this.lastProcessedLedger + 1, horizonLatest.sequence - 10);
     }
+  }
+
+  /**
+   * Public API: backfill from a specific ledger sequence.
+   * If `endSequence` is omitted, backfill up to `latestLedger.sequence - 10`.
+   */
+  async backfillFromSequence(startSequence: number, endSequence?: number): Promise<void> {
+    console.log(`[indexer] manual backfill requested from ${startSequence}${endSequence ? ` to ${endSequence}` : ''}`);
+
+    if (!Number.isInteger(startSequence) || startSequence <= 0) {
+      throw new Error('startSequence must be a positive integer');
+    }
+
+    let horizonLatest: Horizon.ServerApi.LedgerRecord;
+    try {
+      // Apply rate limiter when querying Horizon
+      await this.rateLimiter.consume();
+      horizonLatest = await this.stellarService.getLatestLedger();
+    } catch (err) {
+      if (err instanceof CircuitOpenError) {
+        console.warn('[indexer] circuit open – cannot perform manual backfill');
+        return;
+      }
+      throw err;
+    }
+
+    const resolvedEnd = endSequence && Number.isInteger(endSequence) && endSequence > 0
+      ? endSequence
+      : Math.max(horizonLatest.sequence - 10, startSequence);
+
+    if (startSequence > resolvedEnd) {
+      console.log(`[indexer] startSequence ${startSequence} is after end ${resolvedEnd}; nothing to backfill`);
+      return;
+    }
+
+    await this.backfillLedgers(startSequence, resolvedEnd);
   }
 
   private async backfillLedgers(startSequence: number, endSequence: number): Promise<void> {
@@ -235,10 +252,8 @@ export class IndexerService {
     for (let sequence = startSequence; sequence <= endSequence; sequence++) {
       try {
         // Issue #37 – Apply rate limiter to Horizon API calls
-        metrics.horizonRequestsTotal.inc({ endpoint: 'ledger' });
-        const ledger = await this.circuitBreaker.execute(() =>
-          this.rateLimiter.consume().then(() => this.stellarService.getLedger(sequence)),
-        );
+        await this.rateLimiter.consume();
+        const ledger = await this.stellarService.getLedger(sequence);
         ledgers.push(ledger);
       } catch (error) {
         if (error instanceof CircuitOpenError) {
@@ -353,7 +368,7 @@ export class IndexerService {
       this.lastLedgerProcessedAt = now;
 
       // Update circuit breaker state gauge
-      metrics.setCircuitBreakerState(this.circuitBreaker.getState());
+      metrics.setCircuitBreakerState(this.stellarService.getCircuitBreakerState());
     } catch (error) {
       console.error(`[indexer] error processing ledger ${(rawLedger as any)?.sequence}:`, error);
       metrics.errorsTotal.inc({ type: 'process_ledger' });
@@ -378,9 +393,12 @@ export class IndexerService {
     const horizonEnd = metrics.horizonRequestDuration.startTimer({ endpoint: 'transactions' });
     let rawTransactions: Horizon.ServerApi.CollectionPage<Horizon.ServerApi.TransactionRecord>;
     try {
-      rawTransactions = await this.circuitBreaker.execute(() =>
-        this.rateLimiter.consume().then(() => this.stellarService.getTransactionsForLedger(ledgerSequence)),
-      );
+      if (this.stellarService.getCircuitBreakerState() === 'OPEN') {
+        console.warn(`[indexer] circuit open – skipping transactions for ledger ${ledgerSequence}`);
+        return;
+      }
+      await this.rateLimiter.consume();
+      rawTransactions = await this.stellarService.getTransactionsForLedger(ledgerSequence);
     } catch (err) {
       if (err instanceof CircuitOpenError) {
         console.warn(`[indexer] circuit open – skipping transactions for ledger ${ledgerSequence}`);
@@ -486,10 +504,15 @@ export class IndexerService {
     const horizonEnd = metrics.horizonRequestDuration.startTimer({ endpoint: 'operations' });
     let rawOperations: Horizon.ServerApi.CollectionPage<Horizon.ServerApi.OperationRecord>;
     try {
+      if (this.stellarService.getCircuitBreakerState() === 'OPEN') {
+        console.warn(
+          `[indexer] circuit open – skipping operations for tx ${transactionHash}`,
+        );
+        return;
+      }
       // Issue #37 – Apply rate limiter to Horizon API calls
-      rawOperations = await this.circuitBreaker.execute(() =>
-        this.rateLimiter.consume().then(() => this.stellarService.getOperationsForTransaction(transactionHash)),
-      );
+      await this.rateLimiter.consume();
+      rawOperations = await this.stellarService.getOperationsForTransaction(transactionHash);
     } catch (err) {
       if (err instanceof CircuitOpenError) {
         console.warn(
@@ -719,21 +742,21 @@ export class IndexerService {
     isRunning: boolean;
     lastProcessedLedger: number;
     horizonUrl: string;
-    circuitBreaker: ReturnType<CircuitBreaker['getStats']>;
+    circuitBreaker: ReturnType<StellarService['getCircuitBreakerStats']>;
     idempotencyCacheSize: number;
   }> {
     return {
       isRunning: this.isRunning,
       lastProcessedLedger: this.lastProcessedLedger,
       horizonUrl: this.stellarService.getHorizonUrl(),
-      circuitBreaker: this.circuitBreaker.getStats(),
+      circuitBreaker: this.stellarService.getCircuitBreakerStats(),
       idempotencyCacheSize: this.idempotency.cacheSize(),
     };
   }
 
   /** Manually reset the circuit breaker (e.g. from an admin endpoint). */
   resetCircuitBreaker(): void {
-    this.circuitBreaker.reset();
+    this.stellarService.resetCircuitBreaker();
     metrics.setCircuitBreakerState('CLOSED');
   }
 }
