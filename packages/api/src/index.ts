@@ -36,6 +36,30 @@ const LIST_FIELD_NAMES = new Set([
   'edges', 'nodes', 'networkMetrics', 'assetMetrics',
 ]);
 
+function timeoutMiddleware(timeoutMs: number, logger: winston.Logger) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const timer = setTimeout(() => {
+      if (!res.headersSent) {
+        logger.error('Request timeout reached', {
+          path: req.path,
+          method: req.method,
+          ip: req.ip,
+          timeoutMs,
+        });
+        res.status(503).json({
+          error: 'Request timeout',
+          message: `The request took too long to process and was timed out after ${timeoutMs}ms`,
+        });
+      }
+    }, timeoutMs);
+
+    res.on('finish', () => clearTimeout(timer));
+    res.on('close', () => clearTimeout(timer));
+
+    next();
+  };
+}
+
 function calculateQueryComplexity(document: any, variables?: Record<string, any>): number {
   let complexity = 0;
 
@@ -140,6 +164,9 @@ class ApiServer {
     }));
 
     this.app.use(compression());
+
+    // ── Request Timeout ────────────────────────────────────────────────────────────
+    this.app.use(timeoutMiddleware(30000, this.logger));
 
     // ── Rate limiting ─────────────────────────────────────────────────────────
     //
@@ -366,15 +393,21 @@ class ApiServer {
                 errors: ctx.errors,
               });
             },
-            willSendResponse(ctx: any) {
-              const duration = Date.now() - startTime;
-              if (duration > 1000) {
-                logger.warn('Slow GraphQL query detected', {
-                  operation: ctx.request.operationName,
-                  duration,
-                });
-              }
-            },
+             willSendResponse(ctx: any) {
+               const duration = Date.now() - startTime;
+               if (duration > 30000) {
+                 logger.error('GraphQL query timeout exceeded', {
+                   operation: ctx.request.operationName,
+                   duration,
+                 });
+               } else if (duration > 1000) {
+                 logger.warn('Slow GraphQL query detected', {
+                   operation: ctx.request.operationName,
+                   duration,
+                 });
+               }
+             },
+
           };
         },
       },
@@ -446,6 +479,7 @@ class ApiServer {
       });
 
       this.httpServer = createServer(this.app);
+      this.httpServer.timeout = 30000; // 30s default timeout
       this.setupWebSocketServer();
       await this.realtimePublisher.start();
 
