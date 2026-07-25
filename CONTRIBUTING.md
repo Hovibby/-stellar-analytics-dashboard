@@ -287,6 +287,18 @@ pnpm db:migrate
 - Add troubleshooting guides
 - Update configuration examples
 
+## 👥 Code Ownership
+
+Each service area has a designated owning team. GitHub automatically requests their review via [`.github/CODEOWNERS`](.github/CODEOWNERS) whenever a PR touches their files.
+
+See [`docs/code-ownership.md`](docs/code-ownership.md) for the full ownership table, per-area acceptance criteria, and escalation guidelines.
+
+## 📦 Dependency Updates
+
+Third-party packages are kept current via Dependabot, which opens grouped PRs every Monday at 06:00 UTC. Security advisories are handled immediately regardless of the weekly schedule.
+
+See [`docs/dependency-management.md`](docs/dependency-management.md) for the full update policy, review checklist, and instructions for manual updates.
+
 ## 🤝 Community Guidelines
 
 ### Code of Conduct

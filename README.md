@@ -111,3 +111,15 @@ Slow-query monitoring, DataLoader batching, Redis caching, and index review guid
 ## Backup and Disaster Recovery
 
 Backup/restore/PITR runbook is documented in `docs/backup-disaster-recovery.md`.
+
+## Code Ownership
+
+Each service area has a designated owning team that is automatically requested for review on relevant PRs.
+
+See `docs/code-ownership.md` for the ownership table, per-area acceptance criteria, and escalation guidelines.
+
+## Dependency Management
+
+Third-party packages are updated automatically each week via Dependabot. Security advisories are handled immediately.
+
+See `docs/dependency-management.md` for the full update policy and review checklist.
