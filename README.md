@@ -52,6 +52,8 @@ Shared network configuration is in `shared/src/config/networks.ts`:
 
 ## Local Setup
 
+> **New to the project?** See [DEVELOPMENT.md](./DEVELOPMENT.md) for a complete step-by-step guide covering prerequisites, environment variables, mock mode, port map, and troubleshooting.
+
 1. Install dependencies:
 
 ```bash
@@ -61,8 +63,32 @@ pnpm install
 2. Start PostgreSQL and Redis:
 
 ```bash
-docker compose up -d postgres redis
+docker compose -f docker-compose.dev.yml up -d postgres redis
 ```
+
+3. Copy and configure environment files:
+
+```bash
+cp indexer/.env.example       indexer/.env
+cp packages/api/.env.example  packages/api/.env
+```
+
+4. Run migrations:
+
+```bash
+pnpm db:migrate
+```
+
+5. Start all services:
+
+```bash
+pnpm dev
+```
+
+### Mock mode (no Stellar network required)
+
+Set `STELLAR_MOCK=true` in `indexer/.env` to run the indexer fully offline
+using deterministic generated data. See [DEVELOPMENT.md § Mock mode](./DEVELOPMENT.md#4-mock-mode-no-live-stellar-network) for details.
 
 ### CI/CD
 
