@@ -10,12 +10,21 @@
     "test:chrome": "playwright test --project=chromium",
     "test:firefox": "playwright test --project=firefox",
     "test:webkit": "playwright test --project=webkit",
-    "test:ci": "playwright test --reporter=list --reporter=junit",
+    "test:ci": "playwright test --project=chromium --project=firefox --project=webkit --project='Mobile Chrome' --project='Mobile Safari' --reporter=list --reporter=junit",
+    "test:visual": "playwright test --project=visual-regression",
+    "test:visual:update": "playwright test --project=visual-regression --update-snapshots",
+    "test:visual:ci": "playwright test --project=visual-regression --reporter=list --reporter=junit",
+    "test:flaky": "cross-env QUARANTINE_MODE=run-quarantined playwright test --project=flaky-detection --repeat-each=3",
+    "test:flaky:ci": "cross-env QUARANTINE_MODE=run-quarantined playwright test --project=flaky-detection --repeat-each=3 --reporter=list --reporter=junit",
+    "flaky:promote": "ts-node scripts/promote-flaky.ts",
+    "flaky:promote:dry": "ts-node scripts/promote-flaky.ts --dry-run",
     "codegen": "playwright codegen http://localhost:5173"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",
     "@types/node": "^20.10.0",
+    "cross-env": "^7.0.3",
+    "ts-node": "^10.9.1",
     "typescript": "^5.2.2"
   }
 }

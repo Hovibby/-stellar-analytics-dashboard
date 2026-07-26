@@ -108,7 +108,10 @@ jobs:
           REDIS_URL: redis://localhost:6379
           NODE_ENV: test
 
-      - name: Run E2E tests
+      # Quarantined tests are skipped automatically by the quarantine fixture.
+      # QUARANTINE_MODE is intentionally left unset here so the fixture
+      # applies its skip logic and flaky tests do not block the release pipeline.
+      - name: Run E2E tests (quarantined tests skipped)
         run: pnpm --filter @stellar-analytics/e2e test:ci
         env:
           DATABASE_URL: postgres://stellar_user:stellar_password@localhost:5432/stellar_analytics_test

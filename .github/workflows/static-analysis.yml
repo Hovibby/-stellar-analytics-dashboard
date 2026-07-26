@@ -1,0 +1,213 @@
+name: Static Analysis
+
+# Detects risky patterns in API and indexer code earlier in the development
+# cycle using:
+#   1. TypeScript strict-mode type-checking (noUnusedLocals, noUncheckedIndexedAccess, …)
+#   2. Custom ESLint rules:
+#        @stellar-analytics/no-raw-sql-in-resolver
+#        @stellar-analytics/require-auth-check
+#        @stellar-analytics/no-unhandled-promise-in-resolver
+#   3. Unit tests for the custom ESLint rules themselves
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'packages/api/src/**'
+      - 'indexer/src/**'
+      - 'packages/api/tsconfig.json'
+      - 'indexer/tsconfig.json'
+      - 'tools/eslint-rules/**'
+      - '.eslintrc.js'
+      - '.github/workflows/static-analysis.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'packages/api/src/**'
+      - 'indexer/src/**'
+      - 'packages/api/tsconfig.json'
+      - 'indexer/tsconfig.json'
+      - 'tools/eslint-rules/**'
+      - '.eslintrc.js'
+      - '.github/workflows/static-analysis.yml'
+
+jobs:
+  # ── Build the custom ESLint plugin ──────────────────────────────────────────
+  build-plugin:
+    name: Build @stellar-analytics/eslint-plugin
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build ESLint plugin
+        run: pnpm --filter @stellar-analytics/eslint-plugin build
+
+      - name: Run ESLint plugin tests
+        run: pnpm --filter @stellar-analytics/eslint-plugin test
+
+      # Cache the built plugin so downstream jobs can use it without rebuilding
+      - name: Cache built plugin
+        uses: actions/cache/save@v4
+        with:
+          path: tools/eslint-rules/dist
+          key: eslint-plugin-${{ github.sha }}
+
+  # ── TypeScript strict type-checking ─────────────────────────────────────────
+  typecheck:
+    name: TypeScript Strict Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-plugin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore built plugin
+        uses: actions/cache/restore@v4
+        with:
+          path: tools/eslint-rules/dist
+          key: eslint-plugin-${{ github.sha }}
+
+      - name: Type-check API package (strict)
+        run: pnpm type-check:api
+        env:
+          CI: true
+
+      - name: Type-check Indexer (strict)
+        run: pnpm type-check:indexer
+        env:
+          CI: true
+
+      # Generate SARIF for TypeScript errors so they appear as inline
+      # annotations on the PR diff
+      - name: Generate TypeScript diagnostics (SARIF)
+        if: failure()
+        run: |
+          npx @microsoft/tsdoc-to-sarif \
+            --tsconfig packages/api/tsconfig.json \
+            --output api-typecheck.sarif || true
+        continue-on-error: true
+
+      - name: Upload TypeScript SARIF
+        if: failure()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: api-typecheck.sarif
+          category: typescript-strict
+        continue-on-error: true
+
+  # ── Custom ESLint rules ──────────────────────────────────────────────────────
+  eslint-custom:
+    name: Custom ESLint Rules (API + Indexer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-plugin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore built plugin
+        uses: actions/cache/restore@v4
+        with:
+          path: tools/eslint-rules/dist
+          key: eslint-plugin-${{ github.sha }}
+
+      - name: Run custom rules on API + Indexer
+        run: pnpm lint:api
+        env:
+          CI: true
+
+      # Generate SARIF on failure so GitHub shows inline PR annotations
+      - name: Generate ESLint SARIF (on failure)
+        if: failure()
+        run: |
+          pnpm exec eslint packages/api/src indexer/src \
+            --ext .ts \
+            --format @microsoft/eslint-formatter-sarif \
+            --output-file eslint-results.sarif || true
+
+      - name: Upload ESLint SARIF
+        if: failure()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: eslint-results.sarif
+          category: custom-eslint-rules
+
+  # ── Full lint pass (all packages) ───────────────────────────────────────────
+  lint-all:
+    name: ESLint (all packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-plugin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore built plugin
+        uses: actions/cache/restore@v4
+        with:
+          path: tools/eslint-rules/dist
+          key: eslint-plugin-${{ github.sha }}
+
+      - name: Run full lint
+        run: pnpm lint
+        env:
+          CI: true
