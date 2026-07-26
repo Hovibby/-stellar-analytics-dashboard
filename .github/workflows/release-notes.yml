@@ -1,0 +1,121 @@
+name: Release Notes
+
+# Generates and commits CHANGELOG.md when a version tag is pushed,
+# and posts a summary comment on any PR targeting main.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  # ── On tag push: generate CHANGELOG entry and commit it ──────────────────────
+  generate-on-tag:
+    name: Generate CHANGELOG on release tag
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history for git log range
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes entry
+        run: |
+          node scripts/generate-release-notes.mjs \
+            --version "${{ steps.version.outputs.version }}" \
+            --to "${{ github.ref_name }}"
+
+      - name: Commit updated CHANGELOG
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git diff --cached --quiet || git commit -m "docs: update CHANGELOG for v${{ steps.version.outputs.version }} [skip ci]"
+          git push origin HEAD:main
+
+  # ── On PR: post a preview comment of the release notes since last tag ────────
+  preview-on-pr:
+    name: Preview release notes on PR
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate preview (stdout only)
+        id: notes
+        run: |
+          NOTES=$(node scripts/generate-release-notes.mjs --dry-run --output stdout 2>/dev/null)
+          # Store as multiline output
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const notes = `${{ steps.notes.outputs.notes }}`;
+            const body = [
+              '## 📋 Release Notes Preview',
+              '',
+              'The following changes will be included in the next release based on commits in this PR:',
+              '',
+              '```markdown',
+              notes,
+              '```',
+              '',
+              '_Generated automatically from conventional commits. Update commit messages to adjust these notes._',
+            ].join('\n');
+
+            // Find existing preview comment to update (avoids spam)
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.data.find(
+              (c) => c.user.login === 'github-actions[bot]' && c.body.includes('Release Notes Preview')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

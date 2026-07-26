@@ -30,7 +30,9 @@
     "db:migrate": "pnpm --filter @stellar-analytics/indexer db:migrate",
     "db:migrate:down": "pnpm --filter @stellar-analytics/indexer db:migrate:down",
     "db:migrate:create": "pnpm --filter @stellar-analytics/indexer db:migrate:create",
-    "db:explain": "sh scripts/database/analyze-query-plans.sh"
+    "db:explain": "sh scripts/database/analyze-query-plans.sh",
+    "release:notes": "node scripts/generate-release-notes.mjs",
+    "release:notes:preview": "node scripts/generate-release-notes.mjs --dry-run"
   },
   "devDependencies": {
     "@commitlint/cli": "^18.6.0",
