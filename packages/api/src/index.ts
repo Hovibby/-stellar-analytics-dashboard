@@ -414,6 +414,7 @@ class ApiServer {
 
               // Query complexity analysis
               const complexity = calculateQueryComplexity(ctx.document, ctx.request.variables);
+              ctx.context.complexity = complexity;
               logger.info('GraphQL operation resolved', {
                 operation,
                 userId,
@@ -446,6 +447,19 @@ class ApiServer {
                   operation: ctx.request.operationName,
                   duration,
                 });
+              }
+              if (ctx.response.extensions) {
+                ctx.response.extensions.queryComplexity = {
+                  complexity: ctx.context.complexity,
+                  maxComplexity: MAX_QUERY_COMPLEXITY,
+                };
+              } else {
+                ctx.response.extensions = {
+                  queryComplexity: {
+                    complexity: ctx.context.complexity,
+                    maxComplexity: MAX_QUERY_COMPLEXITY,
+                  },
+                };
               }
             },
           };
