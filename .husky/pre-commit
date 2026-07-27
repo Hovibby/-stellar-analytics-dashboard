@@ -1,20 +1,36 @@
 #!/bin/sh
 . "$(dirname "$0")/_/husky.sh"
 
+# ── 1. Lint & format staged files ───────────────────────────────────────────
 pnpm exec lint-staged
 
-# Skip tests if only lockfile or package.json changes are staged
+# ── 2. Artefact sync check ──────────────────────────────────────────────────
+# Verifies that generated/derived files (snapshots, schema.sql, lockfile,
+# GraphQL typeDefs) are kept in sync with their sources.
+# See scripts/check-sync.sh for the full list of checks.
+sh "$(git rev-parse --show-toplevel)/scripts/check-sync.sh"
+
+# ── 3. Selective unit tests ──────────────────────────────────────────────────
+# Skip test runs when only lockfile / root package.json changes are staged.
 STAGED_FILES=$(git diff --cached --name-only)
-if echo "$STAGED_FILES" | grep -qE "^(pnpm-lock\.yaml|package\.json)$"; then
-  exit 0
-fi
 
-# Run frontend unit tests on staged frontend changes
-if echo "$STAGED_FILES" | grep -qE "^packages/frontend/"; then
-  pnpm --filter @stellar-analytics/frontend test -- --passWithNoTests
-fi
+if echo "$STAGED_FILES" | grep -qvE "^(pnpm-lock\.yaml|package\.json)$"; then
 
-# Run API unit tests on staged API changes
-if echo "$STAGED_FILES" | grep -qE "^packages/api/"; then
-  pnpm --filter @stellar-analytics/api test -- --passWithNoTests
+  # Frontend unit tests
+  if echo "$STAGED_FILES" | grep -qE "^(packages/frontend|frontend)/"; then
+    pnpm --filter @stellar-analytics/frontend test -- --passWithNoTests
+  fi
+
+  # API unit tests
+  if echo "$STAGED_FILES" | grep -qE "^packages/api/"; then
+    pnpm --filter @stellar-analytics/api test -- --passWithNoTests
+  fi
+
+  # Indexer unit tests (non-migration changes only — migration integration
+  # tests need a live DB and run in CI, not here)
+  if echo "$STAGED_FILES" | grep -qE "^packages/indexer/src/" && \
+     ! echo "$STAGED_FILES" | grep -qE "^packages/indexer/migrations/"; then
+    pnpm --filter @stellar-analytics/indexer test -- --passWithNoTests
+  fi
+
 fi
