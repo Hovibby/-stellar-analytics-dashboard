@@ -10,6 +10,7 @@
  */
 import { useQuery } from "@apollo/client";
 import { STATS_QUERY } from "../graphql/queries";
+import { useLedgerAddedSubscription } from "./useLedgerAddedSubscription";
 
 export interface DashboardStats {
   network: string;
@@ -51,11 +52,18 @@ const FALLBACK: DashboardStats = {
 
 export function useDashboardData(): UseDashboardDataResult {
   const { data, loading, error, refetch } = useQuery(STATS_QUERY, {
-    // Poll every 30 s so the dashboard stays fresh without a full page reload
+    // Poll every 30 s as a fallback so the dashboard stays fresh even if the
+    // WebSocket subscription below is unavailable (proxy/firewall, etc.).
     pollInterval: 30_000,
     notifyOnNetworkStatusChange: true,
     // Return partial data while re-fetching so the UI doesn't blank out
     errorPolicy: "all",
+  });
+
+  // Issue #210: refresh immediately when the indexer commits a new ledger,
+  // instead of waiting for the next 30s poll.
+  useLedgerAddedSubscription(() => {
+    void refetch();
   });
 
   const stats = data?.stats;

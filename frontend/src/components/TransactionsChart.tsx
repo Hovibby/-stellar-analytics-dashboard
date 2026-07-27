@@ -9,6 +9,7 @@ import { useQuery } from '@apollo/client';
 import { NETWORK_METRICS_QUERY } from '../graphql/queries';
 import { ExportControls } from './ExportControls';
 import { ChartSkeleton } from './Skeleton';
+import { EmptyState } from './EmptyState';
 import { useTranslation } from 'react-i18next';
 
 interface MetricPoint {
@@ -118,9 +119,7 @@ export function TransactionsChart() {
         >
           {t('chart.transactionVolume24h')}
         </h3>
-        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-tertiary)' }}>
-          {t('chart.noData')}
-        </p>
+        <EmptyState message={t('chart.noData')} />
       </section>
     );
   }
