@@ -54,6 +54,8 @@ export class IndexerMetrics {
   readonly horizonRequestsTotal: Counter<string>;
   /** Horizon request errors per endpoint */
   readonly horizonRequestErrorsTotal: Counter<string>;
+  /** Transactions skipped because they were already processed (duplicate detection) */
+  readonly duplicateTransactionsSkipped: Counter<string>;
   /** Items enqueued to the dead letter queue */
   readonly dlqEnqueued: Counter<string>;
 
@@ -154,6 +156,12 @@ export class IndexerMetrics {
       name: 'indexer_horizon_request_errors_total',
       help: 'Total number of Horizon API request errors per endpoint',
       labelNames: ['endpoint'] as const,
+      registers: [this.registry],
+    });
+
+    this.duplicateTransactionsSkipped = new Counter({
+      name: 'indexer_duplicate_transactions_skipped_total',
+      help: 'Total number of transactions skipped via duplicate hash detection',
       registers: [this.registry],
     });
 

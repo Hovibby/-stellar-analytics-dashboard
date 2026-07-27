@@ -34,6 +34,10 @@ import {
   validateRecords,
 } from '../validation/schemas';
 import { dlq } from '../error-recovery/DeadLetterQueue';
+import {
+  TransactionTracking,
+  TX_IDEMPOTENCY_PREFIX,
+} from '../idempotency/IdempotencyTracker';
 
 export interface IndexerServiceOptions {
   /**
@@ -476,10 +480,41 @@ export class IndexerService {
       );
     }
 
+    // ── Duplicate transaction detection ────────────────────────────────────
+    const txHashes = transactions.map(
+      (tx) => (tx as any).hash as string,
+    );
+
+    const { duplicates } =
+      await TransactionTracking.filterDuplicateTxHashes(
+        this.idempotency,
+        txHashes,
+      );
+
+    if (duplicates.length > 0) {
+      metrics.duplicateTransactionsSkipped.inc(duplicates.length);
+      console.log(
+        `[indexer] skipping ${duplicates.length} duplicate transaction(s) in ` +
+          `ledger ${ledgerSequence}: ${duplicates.slice(0, 5).join(', ')}` +
+          (duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''),
+      );
+    }
+
+    // ── Process only unprocessed transactions ──────────────────────────────
+    const duplicateSet = new Set(duplicates);
     for (const tx of transactions) {
-      await this.processTransaction(
-        tx as unknown as Horizon.ServerApi.TransactionRecord,
-        client,
+      const txRecord = tx as unknown as Horizon.ServerApi.TransactionRecord;
+
+      // Skip if this transaction was already processed
+      if (duplicateSet.has(txRecord.hash)) continue;
+
+      await this.processTransaction(txRecord, client);
+
+      // Mark as processed immediately (so subsequent retries skip it)
+      await TransactionTracking.markTransactionProcessed(
+        this.idempotency,
+        txRecord.hash,
+        ledgerSequence,
       );
     }
   }
