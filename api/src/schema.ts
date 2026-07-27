@@ -59,6 +59,35 @@ export const typeDefs = /* GraphQL */ `
     totalLedgers: Int!
   }
 
+  type Stats {
+    totalLedgers: Int!
+    totalTransactions: Int!
+    totalOperations: Int!
+    totalAccounts: Int!
+    totalAssets: Int!
+    activeAccounts24h: Int!
+    volume24h: String!
+    averageFee24h: Float!
+    successRate24h: Float!
+    latestLedger: Int!
+    latestLedgerTime: String!
+  }
+
+  type NetworkMetrics {
+    timestamp: String!
+    transactionCount: Int!
+    operationCount: Int!
+    activeAccounts: Int!
+    totalVolume: String!
+    averageFee: Float!
+    successRate: Float!
+  }
+
+  input TimeRangeInput {
+    startTime: String
+    endTime: String
+  }
+
   type AssetVolume {
     assetCode: String!
     volume: String!
@@ -82,6 +111,8 @@ export const typeDefs = /* GraphQL */ `
     # Analytics
     accountStats(address: String!): AccountStats!
     networkStats: NetworkStats!
+    stats: Stats!
+    networkMetrics(timeRange: TimeRangeInput): [NetworkMetrics!]!
     assetVolume(assetCode: String!, timeframe: String!): AssetVolume!
     topAccounts(limit: Int): [TopAccount!]!
     

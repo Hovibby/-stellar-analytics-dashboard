@@ -6,6 +6,7 @@
  * Now includes paginated list views for ledgers and transactions.
  */
 import { TransactionsChart } from '../components/TransactionsChart';
+import { NetworkComparisonChart } from '../components/NetworkComparisonChart';
 import { ExportControls } from '../components/ExportControls';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
@@ -268,6 +269,10 @@ export function DashboardPage() {
 
           <div className="grid" style={{ marginTop: '24px' }}>
             <TransactionsChart />
+          </div>
+
+          <div className="grid" style={{ marginTop: '24px' }}>
+            <NetworkComparisonChart />
           </div>
         </>
       )}
