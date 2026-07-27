@@ -48,6 +48,12 @@ export class IndexerMetrics {
   readonly websocketReconnections: Counter<string>;
   /** Retry attempts per operation type (e.g. fetch_ledger, db_write) */
   readonly retriesTotal: Counter<string>;
+  /** Horizon retry events labelled by endpoint and result */
+  readonly horizonRetriesTotal: Counter<string>;
+  /** Total Horizon requests per endpoint */
+  readonly horizonRequestsTotal: Counter<string>;
+  /** Horizon request errors per endpoint */
+  readonly horizonRequestErrorsTotal: Counter<string>;
   /** Items enqueued to the dead letter queue */
   readonly dlqEnqueued: Counter<string>;
 
@@ -127,6 +133,27 @@ export class IndexerMetrics {
       name: 'indexer_retries_total',
       help: 'Total number of retry attempts per operation type',
       labelNames: ['operation'] as const,
+      registers: [this.registry],
+    });
+
+    this.horizonRetriesTotal = new Counter({
+      name: 'indexer_horizon_retries_total',
+      help: 'Horizon API retry events labelled by endpoint and result (retry | exhausted | permanent_error)',
+      labelNames: ['endpoint', 'result'] as const,
+      registers: [this.registry],
+    });
+
+    this.horizonRequestsTotal = new Counter({
+      name: 'indexer_horizon_requests_total',
+      help: 'Total number of Horizon API requests per endpoint',
+      labelNames: ['endpoint'] as const,
+      registers: [this.registry],
+    });
+
+    this.horizonRequestErrorsTotal = new Counter({
+      name: 'indexer_horizon_request_errors_total',
+      help: 'Total number of Horizon API request errors per endpoint',
+      labelNames: ['endpoint'] as const,
       registers: [this.registry],
     });
 

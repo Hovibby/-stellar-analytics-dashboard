@@ -1,44 +1,125 @@
 import { Horizon, Server } from '@stellar/stellar-sdk';
 import { Ledger, Transaction, Operation } from '@stellar-analytics/shared';
 import { CircuitBreaker, CircuitOpenError } from '../circuit-breaker/CircuitBreaker';
+import { metrics } from '../metrics/IndexerMetrics';
+import {
+  getRetryConfig,
+  isTransientError,
+  calculateBackoffMs,
+  type HorizonEndpoint,
+} from './retry-config';
+
+// Re-export for convenience
+export { getRetryConfig, isTransientError, calculateBackoffMs } from './retry-config';
+
+export interface StellarServiceOptions {
+  /**
+   * Horizon API failure threshold before circuit breaker opens.
+   * Default: 5
+   */
+  circuitBreakerFailureThreshold?: number;
+  /**
+   * Circuit breaker cooldown in ms before trying again.
+   * Default: 300_000 (5 minutes)
+   */
+  circuitBreakerCooldownMs?: number;
+  /**
+   * Consecutive successes needed to close the circuit.
+   * Default: 2
+   */
+  circuitBreakerSuccessThreshold?: number;
+}
 
 export class StellarService {
   private server: Server;
   private horizonUrl: string;
   private circuitBreaker: CircuitBreaker;
+  private retryConfig = getRetryConfig();
 
-  constructor(horizonUrl: string) {
+  constructor(
+    horizonUrl: string,
+    options: StellarServiceOptions = {},
+  ) {
     this.horizonUrl = horizonUrl;
     this.server = new Server(horizonUrl);
     this.circuitBreaker = new CircuitBreaker({
-      failureThreshold: 5,
-      cooldownMs: 300_000, // 5 minutes
-      successThreshold: 2,
+      failureThreshold: options.circuitBreakerFailureThreshold ?? 5,
+      cooldownMs: options.circuitBreakerCooldownMs ?? 300_000, // 5 minutes
+      successThreshold: options.circuitBreakerSuccessThreshold ?? 2,
       name: 'HorizonAPI',
     });
+
+    console.log(
+      `[StellarService] retry config: max=${this.retryConfig.maxAttempts}, ` +
+        `base=${this.retryConfig.baseDelayMs}ms, ` +
+        `maxDelay=${this.retryConfig.maxDelayMs}ms, ` +
+        `jitter=${this.retryConfig.jitter}`,
+    );
   }
 
-  private static readonly MAX_RETRY_ATTEMPTS = 3;
-  private static readonly BACKOFF_BASE_MS = 200;
-
+  /**
+   * Retry `fn` with jittered exponential backoff.
+   *
+   * - Only transient errors (network failures, 5xx, 429) are retried.
+   * - Permanent errors (4xx) are rejected immediately.
+   * - Each retry attempt is logged and counted via Prometheus metrics.
+   * - The configured `maxAttempts` includes the initial call.
+   */
   private async retryWithBackoff<T>(fn: () => Promise<T>): Promise<T> {
     let attempt = 0;
+
     while (true) {
       try {
         return await fn();
       } catch (err) {
         attempt += 1;
-        if (attempt >= StellarService.MAX_RETRY_ATTEMPTS) {
+
+        // Check if we should retry
+        if (!isTransientError(err)) {
+          metrics.horizonRetriesTotal.inc({ endpoint: 'unknown', result: 'permanent_error' });
           throw err;
         }
-        const delayMs = StellarService.BACKOFF_BASE_MS * 2 ** (attempt - 1);
+
+        if (attempt >= this.retryConfig.maxAttempts) {
+          metrics.horizonRetriesTotal.inc({ endpoint: 'unknown', result: 'exhausted' });
+          console.error(
+            `[StellarService] retry exhausted after ${attempt} attempts: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          throw err;
+        }
+
+        // Calculate backoff with jitter
+        const delayMs = calculateBackoffMs(attempt, this.retryConfig);
+
+        metrics.horizonRetriesTotal.inc({ endpoint: 'unknown', result: 'retry' });
+
+        console.warn(
+          `[StellarService] request failed (attempt ${attempt}/${this.retryConfig.maxAttempts}), ` +
+            `retrying in ${delayMs}ms: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+        );
+
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
   }
 
-  private executeWithRetry<T>(fn: () => Promise<T>): Promise<T> {
-    return this.circuitBreaker.execute(() => this.retryWithBackoff(fn));
+  /**
+   * Execute `fn` through the circuit breaker then with retry logic.
+   */
+  private executeWithRetry<T>(fn: () => Promise<T>, endpoint?: HorizonEndpoint): Promise<T> {
+    return this.circuitBreaker.execute(() =>
+      this.retryWithBackoff(() => {
+        // Track which endpoint was called
+        if (endpoint) {
+          metrics.horizonRequestsTotal.inc({ endpoint });
+        }
+        return fn();
+      }),
+    );
   }
 
   async getLatestLedger(): Promise<Horizon.ServerApi.LedgerRecord> {
