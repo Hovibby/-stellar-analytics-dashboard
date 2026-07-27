@@ -1,6 +1,7 @@
 // Export all types
 export * from './types/stellar';
 export * from './types/api';
+export * from './types/account-events';
 
 // Export utilities
 export * from './utils/stellar';

@@ -46,7 +46,7 @@ export function TransactionsList({ initialTimeRange, onClearTimeRange }: Transac
   const [after, setAfter] = useState<string | null>(null);
   const [previousCursors, setPreviousCursors] = useState<string[]>([]);
 
-  const { data, loading, error } = useQuery<TransactionsData>(TRANSACTIONS_QUERY, {
+  const { data, loading, error, refetch } = useQuery<TransactionsData>(TRANSACTIONS_QUERY, {
     variables: {
       first: pageSize,
       after,
@@ -174,9 +174,7 @@ export function TransactionsList({ initialTimeRange, onClearTimeRange }: Transac
       )}
 
       {transactions.length === 0 ? (
-        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)' }}>
-          {t('transactions.noData')}
-        </p>
+        <EmptyState message={t('transactions.noData')} />
       ) : (
         <>
           <div style={{ overflowX: 'auto' }}>

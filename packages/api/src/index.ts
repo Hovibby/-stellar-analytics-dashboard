@@ -21,9 +21,7 @@ import type { HealthCheckResult } from './database/connection';
 import { RealtimePublisher } from './services/realtime-publisher';
 import { checkSubscriptionRateLimit, checkEventRateLimit, cleanupRateLimits } from './pubsub';
 import { authService } from './services/auth';
-import { initPerfAlerting, getPerfAlerting } from './services/performance-alerting';
-import { getDbCircuitBreaker } from './services/circuit-breaker';
-import { AuthDirective } from './directives/auth';
+import { createTraceContext, extractTraceId, logTrace, getTraceResponseHeader, TraceContext } from './utils/tracer';
 
 dotenv.config();
 
@@ -519,21 +517,33 @@ class ApiServer {
 
     const plugins: any[] = [
       {
-        requestDidStart() {
+        requestDidStart(requestContext: any) {
           const startTime = Date.now();
+          const trace: TraceContext = requestContext.context?.trace;
+          
+          // Set trace ID as response header for distributed tracing
+          if (trace && requestContext.response?.http) {
+            requestContext.response.http.headers.set(
+              getTraceResponseHeader(),
+              trace.requestId
+            );
+          }
+          
           return {
             didResolveOperation(ctx: any) {
               const operation = ctx.request.operationName || 'anonymous';
               const user = ctx.context.user;
               const userId = user ? user.id : 'anonymous';
-
-              // Query complexity analysis
-              const complexity = calculateQueryComplexity(ctx.document, ctx.request.variables);
-              ctx.context.complexity = complexity;
+              
+              // Update trace context with operation name
+              if (trace) {
+                trace.operationName = operation;
+              }
+              
               logger.info('GraphQL operation resolved', {
                 operation,
                 userId,
-                complexity,
+                traceId: trace?.requestId,
                 variables: ctx.request.variables,
               });
 
@@ -547,27 +557,26 @@ class ApiServer {
             didEncounterErrors(ctx: any) {
               logger.error('GraphQL operation errors', {
                 operation: ctx.request.operationName,
+                traceId: trace?.requestId,
                 errors: ctx.errors,
               });
             },
-             willSendResponse(ctx: any) {
-               const duration = Date.now() - startTime;
-               const operationName = ctx.request.operationName || 'anonymous';
-               if (duration > 30000) {
-                 logger.error('GraphQL query timeout exceeded', {
-                   operation: operationName,
-                   duration,
-                 });
-               } else if (duration > 1000) {
-                 logger.warn('Slow GraphQL query detected', {
-                   operation: operationName,
-                   duration,
-                 });
-               }
-               // Performance alerting
-               getPerfAlerting()?.onGraphQLOperation(operationName, duration);
-             },
-
+            willSendResponse(ctx: any) {
+              const duration = Date.now() - startTime;
+              
+              // Log trace summary for every request
+              if (trace) {
+                logTrace(trace, logger);
+              }
+              
+              if (duration > 1000) {
+                logger.warn('Slow GraphQL query detected', {
+                  operation: ctx.request.operationName,
+                  traceId: trace?.requestId,
+                  duration,
+                });
+              }
+            },
           };
         },
       },
@@ -607,12 +616,17 @@ class ApiServer {
           }
         }
 
+        // Create trace context for this request
+        const incomingTraceId = extractTraceId(req.headers as Record<string, string | string[] | undefined>);
+        const trace = createTraceContext(incomingTraceId, user?.id, undefined);
+
         return {
           req,
           user,
           db,
           loaders: createLoaders(),
           logger: this.logger,
+          trace,
           authService,
         };
       },
@@ -679,58 +693,30 @@ class ApiServer {
     useServer(
       {
         schema,
-        context: async (ctx: any, msg: any, args: any) => {
+        context: async (ctx: any, msg: any, _args: any) => {
           const connectionParams = ctx?.connectionParams || {};
-          const authorization =
-            connectionParams?.authorization || msg?.payload?.headers?.authorization;
-          const apiKey = connectionParams?.['x-api-key'] || msg?.payload?.headers?.['x-api-key'];
+          const token = connectionParams?.token || msg?.payload?.headers?.authorization?.replace('Bearer ', '');
 
-          let user = null;
-
-          // Try JWT token authentication
-          const token = authService.extractToken(authorization);
-          if (token) {
-            const payload = authService.verifyToken(token);
-            if (payload) {
-              user = {
-                id: payload.userId,
-                email: payload.email,
-                role: payload.role,
-              };
+          if (process.env.JWT_SECRET && token) {
+            try {
+              const user = verify(token, process.env.JWT_SECRET);
+              return { db, loaders: createLoaders(), logger: this.logger, user };
+            } catch (err) {
+              throw new Error('Invalid authentication token');
             }
           }
 
-          // Try API key authentication if JWT failed
-          if (!user && apiKey && authService.validateApiKey(apiKey)) {
-            user = { id: 'api-user', email: 'api@stellar-analytics', role: 'user' };
-          }
-
-          return {
-            db,
-            loaders: createLoaders(),
-            logger: this.logger,
-            user,
-            authService,
-          };
+          return { db, loaders: createLoaders(), logger: this.logger };
         },
         onConnect: (ctx: any) => {
           const ip = ctx?.request?.socket?.remoteAddress || 'unknown';
-          const connectionParams = ctx?.connectionParams || {};
 
           if (!checkSubscriptionRateLimit(ip)) {
             throw new Error('Subscription rate limit exceeded');
           }
 
-          const hasToken = !!connectionParams?.token || !!connectionParams?.authorization;
-          const hasApiKey = !!connectionParams?.['x-api-key'];
-          const authenticated = hasToken || hasApiKey;
-
-          this.logger.info('WebSocket client connected', {
-            ip,
-            authenticated,
-            authMethod: hasToken ? 'jwt' : hasApiKey ? 'api-key' : 'none',
-          });
-          return { ip, authenticated };
+          this.logger.info('WebSocket client connected', { ip });
+          return { ip, authenticated: !!ctx?.connectionParams?.token };
         },
         onSubscribe: (ctx: any, msg: any) => {
           const ip = ctx?.ip || 'unknown';

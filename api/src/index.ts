@@ -1,10 +1,15 @@
+import { createServer } from "node:http";
 import express from "express";
 import cors from "cors";
-import { buildSchema, graphql } from "graphql";
+import { buildSchema, graphql, execute, subscribe } from "graphql";
+import { WebSocketServer } from "ws";
+import { useServer } from "graphql-ws/use/ws";
 import { typeDefs } from "./schema.js";
 import { resolvers } from "./resolvers/index.js";
 import { createLoaders } from "./loaders.js";
 import { pool } from "./db.js";
+import { pubsub } from "./pubsub.js";
+import { startLedgerEventListener } from "./pg-listener.js";
 
 const app = express();
 app.use(cors());
@@ -12,6 +17,18 @@ app.use(express.json());
 
 const isProduction = process.env.NODE_ENV === "production";
 const schema = buildSchema(typeDefs);
+
+// Issue #210: attach a `subscribe` resolver to the Subscription type's
+// field(s). `buildSchema` only builds types from SDL with default field
+// resolvers, so the async-iterator-producing resolver has to be wired in
+// after the fact — there's no separate resolver map for subscriptions the
+// way there is for Query/Mutation's rootValue.
+const subscriptionType = schema.getSubscriptionType();
+if (subscriptionType) {
+  const ledgerAddedField = subscriptionType.getFields().ledgerAdded;
+  ledgerAddedField.subscribe = () => pubsub.subscribe("LEDGER_ADDED");
+  ledgerAddedField.resolve = (payload) => payload;
+}
 
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW = 60 * 1000;
@@ -157,6 +174,24 @@ app.post("/graphql", async (req, res) => {
 });
 
 const port = Number(process.env.PORT ?? 4000);
-app.listen(port, () => {
+
+// Use a plain http.Server (rather than app.listen) so the WebSocket
+// subscription transport can share the same port via an HTTP upgrade.
+const httpServer = createServer(app);
+
+const wsServer = new WebSocketServer({
+  server: httpServer,
+  path: "/graphql",
+});
+useServer({ schema, execute, subscribe }, wsServer);
+
+const connectionString =
+  process.env.DATABASE_URL || "postgres://postgres:postgres@localhost:5432/stellar_analytics";
+startLedgerEventListener(connectionString).catch((err) => {
+  console.error("[api] failed to start ledger event listener", err);
+});
+
+httpServer.listen(port, () => {
   console.log(`[api] GraphQL server ready at http://localhost:${port}/graphql`);
+  console.log(`[api] GraphQL subscriptions ready at ws://localhost:${port}/graphql`);
 });

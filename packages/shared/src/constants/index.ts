@@ -41,6 +41,7 @@ export const TABLES = {
   NETWORK_METRICS: 'network_metrics',
   ASSET_METRICS: 'asset_metrics',
   ACCOUNT_METRICS: 'account_metrics',
+  ACCOUNT_EVENTS: 'account_events',
 } as const;
 
 /**
@@ -52,6 +53,7 @@ export const API = {
   MAX_PAGE_SIZE: 100,
   RATE_LIMIT_WINDOW: 60000, // 1 minute
   RATE_LIMIT_MAX_REQUESTS: 1000,
+  ACCOUNT_EVENT_BATCH_SIZE: 50,
   WEBSOCKET_PING_INTERVAL: 30000, // 30 seconds
   WEBSOCKET_MESSAGE_QUEUE_SIZE: 1000,
 } as const;
@@ -236,6 +238,7 @@ export const WS_MESSAGE_TYPES = {
   LEDGER: 'ledger',
   TRANSACTION: 'transaction',
   OPERATION: 'operation',
+  ACCOUNT_EVENT: 'account_event',
   METRICS: 'metrics',
   ERROR: 'error',
   PING: 'ping',

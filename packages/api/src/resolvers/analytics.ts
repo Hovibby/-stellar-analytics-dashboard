@@ -1,98 +1,21 @@
-import { GraphQLResolveInfo, GraphQLError } from 'graphql';
+import { GraphQLResolveInfo } from 'graphql';
 import { db, CACHE_TTL } from '../database/connection';
-import { buildCacheKey, cachedQuery } from '../database/cached-query';
-import { getStatsSummary } from '../services/stats-service';
 import { ValidationService } from '../services/validation';
-import { withResolverLogging } from '../utils/resolver-error';
-import { createConnection, PaginationArgs } from '../utils/pagination';
-import { Connection } from '@stellar-analytics/shared';
-import { buildOrderByClause, OrderByClause } from '../utils/sorting';
-
-const NETWORK_METRICS_CACHE_TTL_SECONDS = Number(
-  process.env.NETWORK_METRICS_CACHE_TTL_SECONDS ?? 30
-);
-
-const OPERATION_SORT_FIELDS = new Map<string, string>([
-  ['createdAt', 'created_at'],
-  ['type', 'type'],
-  ['ledger', 'ledger_sequence'],
-  ['operationIndex', 'operation_index'],
-]);
-
-const ASSET_METRICS_SORT_FIELDS = new Map<string, string>([
-  ['volume24h', 'volume_24h'],
-  ['trades24h', 'trades_24h'],
-  ['holders', 'holders'],
-  ['priceChange24h', 'price_change_24h'],
-]);
-
-const ACCOUNT_METRICS_SORT_FIELDS = new Map<string, string>([
-  ['balanceNative', 'balance_native'],
-  ['transactionCount24h', 'transaction_count_24h'],
-  ['transactionCount7d', 'transaction_count_7d'],
-  ['transactionCount30d', 'transaction_count_30d'],
-  ['lastTransaction', 'last_transaction'],
-]);
+import { getStatsSummary } from '../services/stats-service';
 
 export const analyticsResolvers = {
   Query: {
-    networkMetrics: withResolverLogging(
-      'Query.networkMetrics',
-      async (
-        parent: unknown,
-        args: {
-          timeRange?: { startTime?: string; endTime?: string };
-        },
-        _context: unknown,
-        _info: GraphQLResolveInfo
-      ) => {
-        if (args.timeRange) {
-          ValidationService.validateTimeRange(args.timeRange);
-        }
-
-        const { startTime, endTime } = args.timeRange || {};
-        const cacheKey = buildCacheKey('network-metrics', { startTime, endTime });
-
-        const metrics = await cachedQuery(cacheKey, NETWORK_METRICS_CACHE_TTL_SECONDS, async () => {
-          let whereClause = 'WHERE 1=1';
-          const params: unknown[] = [];
-          let paramIndex = 1;
-
-          if (startTime) {
-            whereClause += ` AND timestamp >= $${paramIndex++}`;
-            params.push(startTime);
-          }
-          if (endTime) {
-            whereClause += ` AND timestamp <= $${paramIndex++}`;
-            params.push(endTime);
-          }
-
-          return db.query(
-            `
-          SELECT 
-            timestamp, ledger_count, transaction_count, operation_count,
-            active_accounts, total_volume, average_fee, success_rate
-          FROM network_metrics 
-          ${whereClause}
-          ORDER BY timestamp DESC
-          LIMIT 1000
-        `,
-            params
-          );
-        });
-
-        return metrics.map((metric) => ({
-          timestamp: metric.timestamp,
-          ledgerCount: metric.ledger_count,
-          transactionCount: metric.transaction_count,
-          operationCount: metric.operation_count,
-          activeAccounts: metric.active_accounts,
-          totalVolume: metric.total_volume,
-          averageFee: parseFloat(metric.average_fee),
-          successRate: parseFloat(metric.success_rate),
-        }));
+    networkMetrics: async (
+      parent: unknown,
+      args: {
+        timeRange?: { startTime?: string; endTime?: string };
+      },
+      _context: unknown,
+      _info: GraphQLResolveInfo
+    ) => {
+      if (args.timeRange) {
+        ValidationService.validateTimeRange(args.timeRange);
       }
-    ),
 
     // Issue #220: aggregation endpoints should return summary totals
     // alongside (or instead of) the raw list, not force every caller to
@@ -580,7 +503,31 @@ export const analyticsResolvers = {
           });
         }
 
-        return {
+      const query = `
+        SELECT DISTINCT ON (a.id)
+          a.asset_type, a.asset_code, a.asset_issuer, a.native,
+          am.volume_24h, am.volume_7d, am.volume_30d,
+          am.trades_24h, am.trades_7d, am.trades_30d,
+          am.price_change_24h, am.market_cap, am.holders
+        FROM assets a
+        LEFT JOIN LATERAL (
+          SELECT volume_24h, volume_7d, volume_30d, trades_24h, trades_7d, trades_30d,
+                 price_change_24h, market_cap, holders
+          FROM asset_metrics
+          WHERE asset_id = a.id
+          ORDER BY timestamp DESC
+          LIMIT 1
+        ) am ON TRUE
+        ${whereClause}
+        ORDER BY a.id
+        LIMIT $${paramIndex}
+      `;
+      params.push(first);
+
+      const assets = await db.query(query, params);
+
+      const result = assets.map(asset => ({
+        asset: {
           assetType: asset.asset_type,
           assetCode: asset.asset_code,
           assetIssuer: asset.asset_issuer,
@@ -924,8 +871,44 @@ export const analyticsResolvers = {
           return csvLines.join('\n');
         }
 
-        return JSON.stringify(rows, null, 2);
-      }
-    ),
+      const metrics = await db.query(
+        `
+        SELECT 
+          account_id, timestamp, balance_native, total_balance_usd,
+          transaction_count_24h, transaction_count_7d, transaction_count_30d,
+          first_transaction, last_transaction, is_active, trustlines, signers
+        FROM account_metrics 
+        ${whereClause}
+        ORDER BY timestamp DESC
+        LIMIT 100
+      `,
+        params
+      );
+
+      const result = metrics.map(metric => ({
+        accountId: metric.account_id,
+        balanceNative: metric.balance_native,
+        totalBalanceUsd: metric.total_balance_usd,
+        transactionCount24h: metric.transaction_count_24h,
+        transactionCount7d: metric.transaction_count_7d,
+        transactionCount30d: metric.transaction_count_30d,
+        firstTransaction: metric.first_transaction,
+        lastTransaction: metric.last_transaction,
+        isActive: metric.is_active,
+        trustlines: metric.trustlines,
+        signers: metric.signers,
+      }));
+
+      // Cache the result
+      await db.cacheSet(cacheKey, result, CACHE_TTL.ACCOUNT_STATS);
+      return result;
+    },
+
+    stats: async (
+      parent: unknown,
+      args: unknown,
+      _context: unknown,
+      _info: GraphQLResolveInfo
+    ) => getStatsSummary(),
   },
 };

@@ -187,6 +187,24 @@ export async function writeIngestedData(
 
     await client.query("COMMIT");
 
+    // Issue #210: notify the API's real-time subscription layer that a new
+    // ledger has landed (see api/src/pg-listener.ts). Best-effort — a
+    // failure here must not roll back or fail the ingest itself.
+    try {
+      await client.query("SELECT pg_notify('ledger_events', $1)", [
+        JSON.stringify({
+          sequence: ledger.sequence,
+          transactionCount: ledger.tx_count,
+          closeTime: ledger.close_time,
+        }),
+      ]);
+    } catch (notifyError) {
+      loaderLogger.warn(
+        { error: (notifyError as Error)?.message ?? String(notifyError) },
+        "Failed to publish ledger_events notification"
+      );
+    }
+
     metrics.durationMs = Date.now() - start;
     console.log(
       `[loader] committed ledger ${ledger.sequence}: ` +
