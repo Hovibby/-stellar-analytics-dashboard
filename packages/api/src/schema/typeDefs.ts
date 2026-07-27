@@ -170,6 +170,28 @@ export const typeDefs = gql`
     totalCount: Int!
   }
 
+  type AssetMetricsEdge {
+    cursor: String!
+    node: AssetMetrics!
+  }
+
+  type AssetMetricsConnection {
+    edges: [AssetMetricsEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type AccountMetricsEdge {
+    cursor: String!
+    node: AccountMetrics!
+  }
+
+  type AccountMetricsConnection {
+    edges: [AccountMetricsEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
   # ── Analytics types ────────────────────────────────────────────────────────
 
   type NetworkMetrics {
@@ -260,10 +282,7 @@ export const typeDefs = gql`
 
   type Query {
     # Ledger queries — cursor-based pagination via LedgerConnection
-    ledgers(
-      pagination: PaginationInput
-      timeRange: TimeRangeInput
-    ): LedgerConnection!
+    ledgers(pagination: PaginationInput, timeRange: TimeRangeInput): LedgerConnection!
 
     ledger(sequence: Int!): Ledger
 
@@ -286,18 +305,12 @@ export const typeDefs = gql`
     operation(id: String!): Operation
 
     # Account queries — cursor-based pagination via AccountConnection
-    accounts(
-      pagination: PaginationInput
-      filter: AccountFilterInput
-    ): AccountConnection!
+    accounts(pagination: PaginationInput, filter: AccountFilterInput): AccountConnection!
 
     account(accountId: String!): Account
 
     # Asset queries — cursor-based pagination via AssetConnection
-    assets(
-      pagination: PaginationInput
-      filter: AssetFilterInput
-    ): AssetConnection!
+    assets(pagination: PaginationInput, filter: AssetFilterInput): AssetConnection!
 
     asset(assetType: String!, assetCode: String, assetIssuer: String): Asset
 
@@ -308,12 +321,13 @@ export const typeDefs = gql`
       pagination: PaginationInput
       filter: AssetFilterInput
       timeRange: TimeRangeInput
-    ): [AssetMetrics!]!
+    ): AssetMetricsConnection!
 
     accountMetrics(
+      pagination: PaginationInput
       accountId: String!
       timeRange: TimeRangeInput
-    ): [AccountMetrics!]!
+    ): AccountMetricsConnection!
 
     # Aggregated network statistics
     stats: NetworkStats!
