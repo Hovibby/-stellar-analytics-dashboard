@@ -8,6 +8,8 @@ import { useQuery } from '@apollo/client';
 import { LEDGERS_QUERY } from '../graphql/queries';
 import { Pagination, PageInfo } from './Pagination';
 import { TableRowSkeleton } from './Skeleton';
+import { EmptyState } from './EmptyState';
+import { useLedgerAddedSubscription } from '../hooks/useLedgerAddedSubscription';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -37,12 +39,19 @@ export function LedgersList() {
   const [after, setAfter] = useState<string | null>(null);
   const [previousCursors, setPreviousCursors] = useState<string[]>([]);
 
-  const { data, loading, error } = useQuery<LedgersData>(LEDGERS_QUERY, {
+  const { data, loading, error, refetch } = useQuery<LedgersData>(LEDGERS_QUERY, {
     variables: {
       first: pageSize,
       after,
     },
     notifyOnNetworkStatusChange: true,
+  });
+
+  // Issue #210: live-refresh the first page as new ledgers are indexed.
+  // Only refetch while on page 1, so paging forward isn't disrupted by a
+  // background refresh of a different page's data.
+  useLedgerAddedSubscription(() => {
+    if (after === null) void refetch();
   });
 
   const ledgers = data?.ledgers.edges.map((edge) => edge.node) || [];
@@ -104,9 +113,7 @@ export function LedgersList() {
       </h3>
 
       {ledgers.length === 0 ? (
-        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)' }}>
-          {t('ledgers.noData')}
-        </p>
+        <EmptyState message={t('ledgers.noData')} />
       ) : (
         <>
           <div style={{ overflowX: 'auto' }}>
