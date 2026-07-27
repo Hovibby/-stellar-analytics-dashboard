@@ -19,11 +19,11 @@
  *   npx tsx src/backfill-cli.ts --start=50000 --end=51000
  */
 
-import "dotenv/config";
-import { Pool } from "pg";
-import { runBackfill, parseBackfillArgs, type BackfillProgress } from "./backfill.js";
-import { validateConfig } from "./config.js";
-import { backfillLogger } from "./logger.js";
+import 'dotenv/config';
+import { Pool } from 'pg';
+import { runBackfill, parseBackfillArgs, type BackfillProgress } from './backfill.js';
+import { validateConfig } from './config.js';
+import { backfillLogger } from './logger.js';
 
 async function main(): Promise<void> {
   // Parse CLI arguments
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   try {
     cliArgs = parseBackfillArgs(process.argv.slice(2));
   } catch (err: any) {
-    backfillLogger.error({ error: err.message }, "Invalid arguments");
+    backfillLogger.error({ error: err.message }, 'Invalid arguments');
     process.stderr.write(`Error: ${err.message}\n`);
     process.exit(1);
   }
@@ -51,19 +51,17 @@ async function main(): Promise<void> {
   const pool = config.databaseUrl ? new Pool({ connectionString: config.databaseUrl }) : null;
 
   if (!pool) {
-    backfillLogger.warn(
-      "DATABASE_URL not set – running in dry-run mode (no data will be written)"
-    );
+    backfillLogger.warn('DATABASE_URL not set – running in dry-run mode (no data will be written)');
   }
 
   // Set up graceful cancellation
   const abortController = new AbortController();
-  process.on("SIGINT", () => {
-    backfillLogger.warn("Received SIGINT – cancelling backfill after current batch...");
+  process.on('SIGINT', () => {
+    backfillLogger.warn('Received SIGINT – cancelling backfill after current batch...');
     abortController.abort();
   });
-  process.on("SIGTERM", () => {
-    backfillLogger.warn("Received SIGTERM – cancelling backfill after current batch...");
+  process.on('SIGTERM', () => {
+    backfillLogger.warn('Received SIGTERM – cancelling backfill after current batch...');
     abortController.abort();
   });
 
@@ -74,8 +72,9 @@ async function main(): Promise<void> {
       network: cliArgs.network,
       concurrency: config.backfillConcurrency,
       batchSize: config.backfillBatchSize,
+      account: cliArgs.account,
     },
-    "Backfill CLI started"
+    'Backfill CLI started'
   );
 
   try {
@@ -83,6 +82,7 @@ async function main(): Promise<void> {
       network: cliArgs.network,
       startSequence: cliArgs.startSequence,
       endSequence: cliArgs.endSequence,
+      account: cliArgs.account,
       pool,
       config,
       signal: abortController.signal,
@@ -91,15 +91,15 @@ async function main(): Promise<void> {
         process.stderr.write(
           `\r[backfill] ${progress.percent}% | ` +
             `processed=${progress.processed} skipped=${progress.skipped} failed=${progress.failed}` +
-            (progress.etaSeconds !== null ? ` | ETA ${progress.etaSeconds}s` : "") +
-            "   "
+            (progress.etaSeconds !== null ? ` | ETA ${progress.etaSeconds}s` : '') +
+            '   '
         );
       },
     });
 
-    process.stderr.write("\n"); // newline after progress line
+    process.stderr.write('\n'); // newline after progress line
 
-    backfillLogger.info(result, "Backfill finished");
+    backfillLogger.info(result, 'Backfill finished');
 
     if (result.resumeFrom !== null) {
       backfillLogger.warn(
@@ -111,7 +111,7 @@ async function main(): Promise<void> {
     if (pool) await pool.end();
     process.exit(result.failed > 0 ? 1 : 0);
   } catch (err: any) {
-    backfillLogger.error({ error: err.message }, "Backfill failed with unhandled error");
+    backfillLogger.error({ error: err.message }, 'Backfill failed with unhandled error');
     if (pool) await pool.end();
     process.exit(1);
   }
