@@ -39,6 +39,7 @@ import {
   TX_IDEMPOTENCY_PREFIX,
 } from '../idempotency/IdempotencyTracker';
 import { BackfillCheckpointManager } from '../backfill/BackfillCheckpointManager';
+import { GapDetector, type GapDetectionReport, type GapRecoveryResult } from '../backfill/GapDetectionService';
 
 export interface IndexerServiceOptions {
   /**
@@ -1161,6 +1162,48 @@ export class IndexerService {
         operationBatchSize: this.operationBatchSize,
       },
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Gap Detection & Recovery
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Detect missing ledger gaps using multiple strategies.
+   */
+  async detectGaps(): Promise<GapDetectionReport> {
+    const detector = new GapDetector(
+      db.getPool(),
+      this.stellarService,
+      this.idempotency,
+    );
+    return detector.generateReport();
+  }
+
+  /**
+   * Recover missing ledgers by backfilling detected gaps.
+   *
+   * Uses the existing backfill machinery (processLedgerBatch) to fill gaps.
+   * Each gap range is backfilled as a single contiguous range, so the
+   * checkpoint/resume logic in backfillLedgers handles interruptions.
+   */
+  async recoverMissingLedgers(): Promise<GapRecoveryResult> {
+    const detector = new GapDetector(
+      db.getPool(),
+      this.stellarService,
+      this.idempotency,
+    );
+
+    console.log('[indexer] starting gap detection and recovery...');
+
+    return detector.recoverMissingLedgers(
+      async (startSeq, endSeq) => {
+        await this.backfillLedgers(startSeq, endSeq);
+      },
+      (message) => {
+        console.log(`[indexer] gap recovery: ${message}`);
+      },
+    );
   }
 
   /** Manually reset the circuit breaker (e.g. from an admin endpoint). */
