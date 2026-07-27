@@ -2,6 +2,7 @@ import { Pool, PoolClient } from 'pg';
 import { createClient } from 'redis';
 import winston from 'winston';
 import { recordQueryExecution, getQueryMetrics } from './query-monitor';
+import { CircuitBreaker, CircuitOpenError, getDbCircuitBreaker } from '../services/circuit-breaker';
 
 // Cache TTL constants (in seconds)
 export const CACHE_TTL = {
@@ -133,24 +134,27 @@ export class DatabaseConnection {
   }
 
   public async query<T = any>(text: string, params?: any[]): Promise<T[]> {
-    const startedAt = performance.now();
-    const client = await this.getClient();
-    try {
-      const result = await client.query(text, params);
-      recordQueryExecution(text, performance.now() - startedAt, result.rowCount ?? undefined, this.logger);
-      return result.rows;
-    } catch (error) {
-      const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
-      this.logger.error('db:query:error', {
-        sql: text.replace(/\s+/g, ' ').trim().slice(0, 200),
-        paramCount: params?.length ?? 0,
-        durationMs,
-        error,
-      });
-      throw error;
-    } finally {
-      client.release();
-    }
+    const circuitBreaker = getDbCircuitBreaker(this.logger);
+    return circuitBreaker.execute(async () => {
+      const startedAt = performance.now();
+      const client = await this.getClient();
+      try {
+        const result = await client.query(text, params);
+        recordQueryExecution(text, performance.now() - startedAt, result.rowCount ?? undefined, this.logger);
+        return result.rows;
+      } catch (error) {
+        const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
+        this.logger.error('db:query:error', {
+          sql: text.replace(/\s+/g, ' ').trim().slice(0, 200),
+          paramCount: params?.length ?? 0,
+          durationMs,
+          error,
+        });
+        throw error;
+      } finally {
+        client.release();
+      }
+    });
   }
 
   public async queryOne<T = any>(text: string, params?: any[]): Promise<T | null> {
