@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { Pool } from 'pg';
 import { StellarService } from './services/stellar-service';
-import { IndexerService } from './services/indexer-service';
+import { IndexerService, type IndexerServiceOptions } from './services/indexer-service';
 import { db } from './database/connection';
 import { runMigrations } from './database/migrate';
 import { SchemaVersionManager } from './database/schema-version';
@@ -18,9 +18,12 @@ class IndexerApp {
   constructor() {
     const network = process.env.STELLAR_NETWORK || STELLAR_NETWORKS.PUBLIC;
     const horizonUrl = process.env.STELLAR_HORIZON_URL || HORIZON_URLS[network];
-    
+
     this.stellarService = new StellarService(horizonUrl);
-    this.indexerService = new IndexerService(this.stellarService);
+
+    // Allow operators to tune batch sizes via env vars for throughput/db-pressure balance
+    const indexerOptions: IndexerServiceOptions = {};
+    this.indexerService = new IndexerService(this.stellarService, indexerOptions);
     
     this.setupGracefulShutdown();
   }

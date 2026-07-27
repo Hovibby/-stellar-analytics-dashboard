@@ -16,7 +16,12 @@
 import { Horizon } from '@stellar/stellar-sdk';
 import { StellarService } from './stellar-service';
 import { db } from '../database/connection';
-import { INDEXER, PAYMENT_OPERATIONS, DEX_OPERATIONS } from '@stellar-analytics/shared';
+import {
+  INDEXER,
+  PAYMENT_OPERATIONS,
+  DEX_OPERATIONS,
+  getCachedIndexerConfig,
+} from '@stellar-analytics/shared';
 import { CircuitOpenError } from '../circuit-breaker/CircuitBreaker';
 import { metrics } from '../metrics/IndexerMetrics';
 import { IdempotencyTracker } from '../idempotency/IdempotencyTracker';
@@ -30,6 +35,34 @@ import {
 } from '../validation/schemas';
 import { dlq } from '../error-recovery/DeadLetterQueue';
 
+export interface IndexerServiceOptions {
+  /**
+   * Number of ledgers to fetch per backfill batch.
+   * Defaults to INDEXER.BACKFILL_BATCH_SIZE (1000), overridable via
+   * the BACKFILL_BATCH_SIZE env var.
+   */
+  backfillBatchSize?: number;
+
+  /**
+   * Number of ledgers to process per batch during real-time ingestion.
+   * Defaults to INDEXER.BATCH_SIZE (100), overridable via
+   * the LEDGER_BATCH_SIZE env var.
+   */
+  ledgerBatchSize?: number;
+
+  /**
+   * Number of transactions to batch per DB insert.
+   * Default 50.
+   */
+  transactionBatchSize?: number;
+
+  /**
+   * Number of operations to batch per DB insert.
+   * Default 100.
+   */
+  operationBatchSize?: number;
+}
+
 export class IndexerService {
   private stellarService: StellarService;
   private isRunning: boolean = false;
@@ -40,8 +73,26 @@ export class IndexerService {
   private readonly idempotency: IdempotencyTracker;
   private readonly rateLimiter: RateLimiter;
 
-  constructor(stellarService: StellarService) {
+  /** Configured batch sizes */
+  readonly backfillBatchSize: number;
+  readonly ledgerBatchSize: number;
+  readonly transactionBatchSize: number;
+  readonly operationBatchSize: number;
+
+  constructor(
+    stellarService: StellarService,
+    options: IndexerServiceOptions = {},
+  ) {
     this.stellarService = stellarService;
+
+    // Resolve batch sizes: explicit options > env vars > defaults
+    const cfg = getCachedIndexerConfig();
+    this.backfillBatchSize = options.backfillBatchSize ?? cfg.backfillBatchSize;
+    this.ledgerBatchSize = options.ledgerBatchSize ?? cfg.ledgerBatchSize;
+    this.transactionBatchSize =
+      options.transactionBatchSize ?? cfg.transactionBatchSize;
+    this.operationBatchSize =
+      options.operationBatchSize ?? cfg.operationBatchSize;
 
     // Issue #37 – Rate limiter for Horizon API: 2000 requests per minute
     this.rateLimiter = new RateLimiter({
@@ -226,15 +277,16 @@ export class IndexerService {
 
   private async backfillLedgers(startSequence: number, endSequence: number): Promise<void> {
     console.log(`[indexer] backfilling ledgers ${startSequence} → ${endSequence}`);
+    console.log(`[indexer] batch size: ${this.backfillBatchSize} ledgers per batch`);
 
     for (
       let sequence = startSequence;
       sequence <= endSequence;
-      sequence += INDEXER.BACKFILL_BATCH_SIZE
+      sequence += this.backfillBatchSize
     ) {
       if (!this.isRunning) break;
 
-      const batchEnd = Math.min(sequence + INDEXER.BACKFILL_BATCH_SIZE - 1, endSequence);
+      const batchEnd = Math.min(sequence + this.backfillBatchSize - 1, endSequence);
 
       try {
         await this.processLedgerBatch(sequence, batchEnd);
@@ -744,6 +796,12 @@ export class IndexerService {
     horizonUrl: string;
     circuitBreaker: ReturnType<StellarService['getCircuitBreakerStats']>;
     idempotencyCacheSize: number;
+    batchConfig: {
+      backfillBatchSize: number;
+      ledgerBatchSize: number;
+      transactionBatchSize: number;
+      operationBatchSize: number;
+    };
   }> {
     return {
       isRunning: this.isRunning,
@@ -751,6 +809,12 @@ export class IndexerService {
       horizonUrl: this.stellarService.getHorizonUrl(),
       circuitBreaker: this.stellarService.getCircuitBreakerStats(),
       idempotencyCacheSize: this.idempotency.cacheSize(),
+      batchConfig: {
+        backfillBatchSize: this.backfillBatchSize,
+        ledgerBatchSize: this.ledgerBatchSize,
+        transactionBatchSize: this.transactionBatchSize,
+        operationBatchSize: this.operationBatchSize,
+      },
     };
   }
 
