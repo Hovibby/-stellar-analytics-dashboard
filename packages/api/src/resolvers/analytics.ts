@@ -255,8 +255,12 @@ export const analyticsResolvers = {
 
     stats: withResolverLogging(
       'Query.stats',
-      async (parent: unknown, args: unknown, _context: unknown, _info: GraphQLResolveInfo) =>
-        getStatsSummary()
+      async (parent: unknown, args: unknown, _context: unknown, _info: GraphQLResolveInfo) => {
+        const cacheKey = 'stats-summary';
+        return cachedQuery(cacheKey, CACHE_TTL.NETWORK_STATS, async () => {
+          return getStatsSummary();
+        });
+      }
     ),
   },
 };
