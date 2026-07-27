@@ -7,7 +7,12 @@
 import { useQuery } from '@apollo/client';
 import { TRANSACTIONS_QUERY } from '../graphql/queries';
 import { Pagination, PageInfo } from './Pagination';
-import { useState } from 'react';
+import {
+  TransactionFilters,
+  TransactionFilterState,
+  TransactionTimeRangeState,
+} from './TransactionFilters';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 interface TransactionEdge {
@@ -37,16 +42,44 @@ export function TransactionsList() {
   const [pageSize, setPageSize] = useState(25);
   const [after, setAfter] = useState<string | null>(null);
   const [previousCursors, setPreviousCursors] = useState<string[]>([]);
+  const [filter, setFilter] = useState<TransactionFilterState>({});
+  const [timeRange, setTimeRange] = useState<TransactionTimeRangeState>({});
+  const [search, setSearch] = useState('');
 
   const { data, loading, error } = useQuery<TransactionsData>(TRANSACTIONS_QUERY, {
     variables: {
       first: pageSize,
       after,
+      filter: Object.keys(filter).length > 0 ? filter : undefined,
+      timeRange: Object.keys(timeRange).length > 0 ? timeRange : undefined,
     },
     notifyOnNetworkStatusChange: true,
   });
 
-  const transactions = data?.transactions.edges.map((edge) => edge.node) || [];
+  const handleFiltersChange = (
+    nextFilter: TransactionFilterState,
+    nextTimeRange: TransactionTimeRangeState,
+    nextSearch: string
+  ) => {
+    setFilter(nextFilter);
+    setTimeRange(nextTimeRange);
+    setSearch(nextSearch);
+    setAfter(null);
+    setPreviousCursors([]);
+  };
+
+  const allTransactions = data?.transactions.edges.map((edge) => edge.node) || [];
+
+  // Free-text search over the currently loaded page (hash / source account) —
+  // the server-side filters above (status, fee range, memo) narrow the
+  // dataset itself; search narrows what's already on screen.
+  const transactions = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allTransactions;
+    return allTransactions.filter(
+      (tx) => tx.hash.toLowerCase().includes(q) || tx.sourceAccount.toLowerCase().includes(q)
+    );
+  }, [allTransactions, search]);
   const pageInfo = data?.transactions.pageInfo || { hasNextPage: false, endCursor: null };
   const totalCount = data?.transactions.totalCount || 0;
 
@@ -124,14 +157,22 @@ export function TransactionsList() {
         {t('transactions.title')}
       </h3>
 
+      <TransactionFilters
+        filter={filter}
+        timeRange={timeRange}
+        search={search}
+        onChange={handleFiltersChange}
+      />
+
       {transactions.length === 0 ? (
-        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)' }}>
-          {t('transactions.noData')}
+        <p style={{ margin: '16px 0 0', fontSize: '13px', color: 'var(--color-text-muted)' }}>
+          {allTransactions.length === 0 ? t('transactions.noData') : t('filters.noResults')}
         </p>
       ) : (
         <>
           <div style={{ overflowX: 'auto' }}>
             <table
+              className="data-table"
               style={{
                 width: '100%',
                 borderCollapse: 'collapse',

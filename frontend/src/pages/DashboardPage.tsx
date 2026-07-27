@@ -98,6 +98,7 @@ export function DashboardPage() {
   return (
     <main className="app">
       <header
+        className="dashboard-header"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -119,7 +120,7 @@ export function DashboardPage() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div className="dashboard-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           {/* Language switcher */}
           <LanguageSwitcher />
 
@@ -146,8 +147,8 @@ export function DashboardPage() {
       </header>
 
       {/* Tab Navigation */}
-      <div style={{ marginBottom: '24px', borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ display: 'flex', gap: '24px' }}>
+      <div className="tabs-nav-wrapper" style={{ marginBottom: '24px', borderBottom: '1px solid #e5e7eb' }}>
+        <div className="tabs-nav" style={{ display: 'flex', gap: '24px' }}>
           <button
             onClick={() => setActiveTab('dashboard')}
             style={{

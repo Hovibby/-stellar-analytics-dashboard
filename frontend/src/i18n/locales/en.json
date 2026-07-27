@@ -57,6 +57,21 @@
     "success": "Success",
     "failed": "Failed"
   },
+  "filters": {
+    "title": "Filter transactions",
+    "search": "Search",
+    "searchPlaceholder": "Hash or account…",
+    "status": "Status",
+    "all": "All",
+    "minFee": "Min fee",
+    "maxFee": "Max fee",
+    "memoType": "Memo type",
+    "hasMemo": "Has memo",
+    "dateFrom": "From",
+    "dateTo": "To",
+    "reset": "Reset filters",
+    "noResults": "No transactions match the current filters."
+  },
   "pagination": {
     "itemsPerPage": "Items per page",
     "showing": "Showing {{current}} of {{total}}",

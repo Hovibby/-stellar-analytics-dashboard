@@ -22,8 +22,8 @@ export const STATS_QUERY = gql`
 `;
 
 export const LEDGERS_QUERY = gql`
-  query GetLedgers($first: Int, $after: String) {
-    ledgers(pagination: { first: $first, after: $after }) {
+  query GetLedgers($first: Int, $after: String, $timeRange: TimeRangeInput) {
+    ledgers(pagination: { first: $first, after: $after }, timeRange: $timeRange) {
       edges {
         cursor
         node {
@@ -45,8 +45,17 @@ export const LEDGERS_QUERY = gql`
 `;
 
 export const TRANSACTIONS_QUERY = gql`
-  query GetTransactions($first: Int, $after: String) {
-    transactions(pagination: { first: $first, after: $after }) {
+  query GetTransactions(
+    $first: Int
+    $after: String
+    $timeRange: TimeRangeInput
+    $filter: TransactionFilterInput
+  ) {
+    transactions(
+      pagination: { first: $first, after: $after }
+      timeRange: $timeRange
+      filter: $filter
+    ) {
       edges {
         cursor
         node {

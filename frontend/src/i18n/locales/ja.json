@@ -57,6 +57,21 @@
     "success": "成功",
     "failed": "失敗"
   },
+  "filters": {
+    "title": "トランザクションをフィルター",
+    "search": "検索",
+    "searchPlaceholder": "ハッシュまたはアカウント…",
+    "status": "ステータス",
+    "all": "すべて",
+    "minFee": "最小手数料",
+    "maxFee": "最大手数料",
+    "memoType": "メモタイプ",
+    "hasMemo": "メモあり",
+    "dateFrom": "開始日",
+    "dateTo": "終了日",
+    "reset": "フィルターをリセット",
+    "noResults": "現在のフィルターに一致するトランザクションはありません。"
+  },
   "pagination": {
     "itemsPerPage": "1ページあたりの項目数",
     "showing": "{{total}}件中{{current}}件表示",

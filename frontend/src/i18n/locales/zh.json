@@ -57,6 +57,21 @@
     "success": "成功",
     "failed": "失败"
   },
+  "filters": {
+    "title": "筛选交易",
+    "search": "搜索",
+    "searchPlaceholder": "哈希或账户…",
+    "status": "状态",
+    "all": "全部",
+    "minFee": "最低费用",
+    "maxFee": "最高费用",
+    "memoType": "备注类型",
+    "hasMemo": "含备注",
+    "dateFrom": "起始日期",
+    "dateTo": "结束日期",
+    "reset": "重置筛选条件",
+    "noResults": "没有符合当前筛选条件的交易。"
+  },
   "pagination": {
     "itemsPerPage": "每页项目数",
     "showing": "显示 {{current}} / {{total}}",
