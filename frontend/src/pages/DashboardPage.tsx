@@ -20,7 +20,17 @@ import { useTranslation } from 'react-i18next';
 export function DashboardPage() {
   const { data, loading, error, retry } = useDashboardData();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'ledgers' | 'transactions'>('dashboard');
+  // Issue #230: chart drill-down — clicking a bar in TransactionsChart jumps
+  // to the Transactions tab pre-filtered to that bar's time bucket.
+  const [drillDownRange, setDrillDownRange] = useState<{ startTime: string; endTime: string } | null>(
+    null
+  );
   const { t } = useTranslation();
+
+  const handleChartDrillDown = (range: { startTime: string; endTime: string }) => {
+    setDrillDownRange(range);
+    setActiveTab('transactions');
+  };
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loading && !data) {
@@ -258,14 +268,19 @@ export function DashboardPage() {
           </div>
 
           <div className="grid" style={{ marginTop: '24px' }}>
-            <TransactionsChart />
+            <TransactionsChart onDrillDown={handleChartDrillDown} />
           </div>
         </>
       )}
 
       {activeTab === 'ledgers' && <LedgersList />}
 
-      {activeTab === 'transactions' && <TransactionsList />}
+      {activeTab === 'transactions' && (
+        <TransactionsList
+          initialTimeRange={drillDownRange}
+          onClearTimeRange={() => setDrillDownRange(null)}
+        />
+      )}
     </main>
   );
 }

@@ -183,10 +183,23 @@ export const typeDefs = gql`
     node: AssetMetrics!
   }
 
+  """
+  Summary totals across ALL matching assets (not just the current page) —
+  issue #220: aggregation endpoints should return totals alongside
+  paginated results, not just the current page's data.
+  """
+  type AssetMetricsAggregate {
+    totalVolume24h: String!
+    totalTrades24h: Int!
+    averagePriceChange24h: Float!
+    totalHolders: Int!
+  }
+
   type AssetMetricsConnection {
     edges: [AssetMetricsEdge!]!
     pageInfo: PageInfo!
     totalCount: Int!
+    aggregates: AssetMetricsAggregate!
   }
 
   type AccountMetricsEdge {
@@ -211,6 +224,23 @@ export const typeDefs = gql`
     totalVolume: String!
     averageFee: Float!
     successRate: Float!
+  }
+
+  """
+  Aggregated totals for `networkMetrics` over a time range — issue #220:
+  aggregation endpoints should return summary counts/totals, not just the
+  raw list of per-bucket data points.
+  """
+  type NetworkMetricsSummary {
+    dataPointCount: Int!
+    totalLedgers: Int!
+    totalTransactions: Int!
+    totalOperations: Int!
+    totalVolume: String!
+    averageFee: Float!
+    averageSuccessRate: Float!
+    earliestTimestamp: DateTime
+    latestTimestamp: DateTime
   }
 
   type AssetMetrics {
@@ -350,6 +380,9 @@ export const typeDefs = gql`
 
     # Analytics queries
     networkMetrics(timeRange: TimeRangeInput): [NetworkMetrics!]!
+
+    "Aggregated totals across the same time range as networkMetrics (issue #220)."
+    networkMetricsSummary(timeRange: TimeRangeInput): NetworkMetricsSummary!
 
     assetMetrics(
       pagination: PaginationInput

@@ -94,6 +94,73 @@ export const analyticsResolvers = {
       }
     ),
 
+    // Issue #220: aggregation endpoints should return summary totals
+    // alongside (or instead of) the raw list, not force every caller to
+    // fetch and reduce the full point list client-side just to get a sum.
+    networkMetricsSummary: withResolverLogging(
+      'Query.networkMetricsSummary',
+      async (
+        parent: unknown,
+        args: {
+          timeRange?: { startTime?: string; endTime?: string };
+        },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ) => {
+        if (args.timeRange) {
+          ValidationService.validateTimeRange(args.timeRange);
+        }
+
+        const { startTime, endTime } = args.timeRange || {};
+        const cacheKey = buildCacheKey('network-metrics-summary', { startTime, endTime });
+
+        return cachedQuery(cacheKey, NETWORK_METRICS_CACHE_TTL_SECONDS, async () => {
+          let whereClause = 'WHERE 1=1';
+          const params: unknown[] = [];
+          let paramIndex = 1;
+
+          if (startTime) {
+            whereClause += ` AND timestamp >= $${paramIndex++}`;
+            params.push(startTime);
+          }
+          if (endTime) {
+            whereClause += ` AND timestamp <= $${paramIndex++}`;
+            params.push(endTime);
+          }
+
+          const row = await db.queryOne(
+            `
+            SELECT
+              COUNT(*)::int AS data_point_count,
+              COALESCE(SUM(ledger_count), 0)::int AS total_ledgers,
+              COALESCE(SUM(transaction_count), 0)::int AS total_transactions,
+              COALESCE(SUM(operation_count), 0)::int AS total_operations,
+              COALESCE(SUM(total_volume), 0)::text AS total_volume,
+              COALESCE(AVG(average_fee), 0) AS average_fee,
+              COALESCE(AVG(success_rate), 0) AS average_success_rate,
+              MIN(timestamp) AS earliest_timestamp,
+              MAX(timestamp) AS latest_timestamp
+            FROM network_metrics
+            ${whereClause}
+          `,
+            params
+          );
+
+          return {
+            dataPointCount: row?.data_point_count ?? 0,
+            totalLedgers: row?.total_ledgers ?? 0,
+            totalTransactions: row?.total_transactions ?? 0,
+            totalOperations: row?.total_operations ?? 0,
+            totalVolume: row?.total_volume ?? '0',
+            averageFee: parseFloat(row?.average_fee ?? '0'),
+            averageSuccessRate: parseFloat(row?.average_success_rate ?? '0'),
+            earliestTimestamp: row?.earliest_timestamp ?? null,
+            latestTimestamp: row?.latest_timestamp ?? null,
+          };
+        });
+      }
+    ),
+
     operations: withResolverLogging(
       'Query.operations',
       async (
@@ -634,7 +701,24 @@ export const analyticsResolvers = {
           holders: asset.holders,
         }));
 
-        return createConnection(result, args.pagination || {}, (item) => item.id);
+        // Issue #220: aggregates are computed over the FULL matching result
+        // set (before pagination slicing), not just the current page.
+        const aggregates = {
+          totalVolume24h: result
+            .reduce((sum, a) => sum + BigInt(a.volume24h || '0'), 0n)
+            .toString(),
+          totalTrades24h: result.reduce((sum, a) => sum + (a.trades24h || 0), 0),
+          averagePriceChange24h:
+            result.length === 0
+              ? 0
+              : result.reduce((sum, a) => sum + a.priceChange24h, 0) / result.length,
+          totalHolders: result.reduce((sum, a) => sum + (a.holders || 0), 0),
+        };
+
+        return {
+          ...createConnection(result, args.pagination || {}, (item) => item.id),
+          aggregates,
+        };
       }
     ),
 

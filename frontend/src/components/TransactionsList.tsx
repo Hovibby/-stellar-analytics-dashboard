@@ -8,7 +8,7 @@ import { useQuery } from '@apollo/client';
 import { TRANSACTIONS_QUERY } from '../graphql/queries';
 import { Pagination, PageInfo } from './Pagination';
 import { TableRowSkeleton } from './Skeleton';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 interface TransactionEdge {
@@ -33,7 +33,14 @@ interface TransactionsData {
   };
 }
 
-export function TransactionsList() {
+export interface TransactionsListProps {
+  /** Issue #230: pre-filter to a time window (e.g. from a chart drill-down). */
+  initialTimeRange?: { startTime: string; endTime: string } | null;
+  /** Called when the user clears the active drill-down time range. */
+  onClearTimeRange?: () => void;
+}
+
+export function TransactionsList({ initialTimeRange, onClearTimeRange }: TransactionsListProps = {}) {
   const { t, i18n } = useTranslation();
   const [pageSize, setPageSize] = useState(25);
   const [after, setAfter] = useState<string | null>(null);
@@ -43,9 +50,18 @@ export function TransactionsList() {
     variables: {
       first: pageSize,
       after,
+      timeRange: initialTimeRange ?? undefined,
     },
     notifyOnNetworkStatusChange: true,
   });
+
+  // Reset pagination whenever the drill-down time range changes (a new
+  // filter should always start from the first page).
+  useEffect(() => {
+    setAfter(null);
+    setPreviousCursors([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTimeRange?.startTime, initialTimeRange?.endTime]);
 
   const transactions = data?.transactions.edges.map((edge) => edge.node) || [];
   const pageInfo = data?.transactions.pageInfo || { hasNextPage: false, endCursor: null };
@@ -107,11 +123,55 @@ export function TransactionsList() {
     );
   }
 
+  const formatRangeBound = (iso: string) => new Date(iso).toLocaleString(i18n.language);
+
   return (
     <section className="card">
       <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700 }}>
         {t('transactions.title')}
       </h3>
+
+      {initialTimeRange && (
+        <div
+          role="status"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '8px',
+            background: 'var(--color-warning-bg)',
+            border: '1px solid var(--color-warning-border)',
+            borderRadius: '8px',
+            padding: '8px 12px',
+            marginBottom: '16px',
+            fontSize: '13px',
+          }}
+        >
+          <span style={{ color: 'var(--color-warning-text)' }}>
+            {t('transactions.filteredByDrillDown', {
+              from: formatRangeBound(initialTimeRange.startTime),
+              to: formatRangeBound(initialTimeRange.endTime),
+            })}
+          </span>
+          {onClearTimeRange && (
+            <button
+              onClick={onClearTimeRange}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--color-warning-border)',
+                borderRadius: '6px',
+                padding: '4px 10px',
+                cursor: 'pointer',
+                color: 'var(--color-warning-text)',
+                fontSize: '12px',
+              }}
+            >
+              {t('transactions.clearFilter')}
+            </button>
+          )}
+        </div>
+      )}
 
       {transactions.length === 0 ? (
         <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)' }}>

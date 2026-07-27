@@ -55,7 +55,9 @@
     "createdAt": "作成日時",
     "noData": "まだトランザクションがありません。インデクサーがまだ同期中かもしれません。",
     "success": "成功",
-    "failed": "失敗"
+    "failed": "失敗",
+    "filteredByDrillDown": "{{from}}〜{{to}}の取引を表示中",
+    "clearFilter": "フィルターを解除"
   },
   "pagination": {
     "itemsPerPage": "1ページあたりの項目数",
@@ -74,6 +76,8 @@
     "successRate": "成功率",
     "autoRefresh": "30秒ごとに自動更新",
     "updating": "更新中…",
-    "refreshChart": "チャートを更新"
+    "refreshChart": "チャートを更新",
+    "ariaGroupLabel": "{{count}}個のデータポイントを含む取引量チャート。バーを選択するとその期間の取引を確認できます。",
+    "barAriaLabel": "{{time}}: {{count}}件の取引、成功率{{successRate}}%。選択するとこの期間の取引を表示します。"
   }
 }

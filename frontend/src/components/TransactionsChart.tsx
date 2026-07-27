@@ -24,7 +24,17 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function TransactionsChart() {
+export interface TransactionsChartProps {
+  /**
+   * Drill-down (issue #230): called with the [start, end) bucket bounds for
+   * the data point the user activated (click, or Enter/Space when focused),
+   * so the caller can e.g. switch to the Transactions tab pre-filtered to
+   * that window.
+   */
+  onDrillDown?: (range: { startTime: string; endTime: string }) => void;
+}
+
+export function TransactionsChart({ onDrillDown }: TransactionsChartProps) {
   const { t, i18n } = useTranslation();
   const now = new Date();
   const startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
@@ -128,6 +138,24 @@ export function TransactionsChart() {
   // ── Data ───────────────────────────────────────────────────────────────────
   const maxTx = Math.max(...metrics.map((m) => m.transactionCount), 1);
 
+  // Issue #230: estimate each bar's [start, end) bucket from its neighbors so
+  // drill-down works regardless of the points' sort order or bucket size.
+  const bucketRangeFor = (index: number): { startTime: string; endTime: string } => {
+    const t = new Date(metrics[index].timestamp).getTime();
+    const neighbor = metrics[index + 1] ?? metrics[index - 1];
+    const intervalMs = neighbor
+      ? Math.abs(new Date(neighbor.timestamp).getTime() - t)
+      : 60 * 60 * 1000;
+    return {
+      startTime: new Date(t - intervalMs / 2).toISOString(),
+      endTime: new Date(t + intervalMs / 2).toISOString(),
+    };
+  };
+
+  const handleActivate = (index: number) => {
+    onDrillDown?.(bucketRangeFor(index));
+  };
+
   return (
     <section className="card">
       <div
@@ -182,10 +210,12 @@ export function TransactionsChart() {
         </div>
       </div>
 
-      {/* Simple bar chart */}
+      {/* Bar chart — each bar is a focusable, labeled button (issue #226:
+          screen reader + keyboard support) that drills down into the
+          underlying transactions for that time bucket (issue #230). */}
       <div
-        role="img"
-        aria-label={`Transaction volume chart with ${metrics.length} data points`}
+        role="group"
+        aria-label={t('chart.ariaGroupLabel', { count: metrics.length })}
         style={{
           display: 'flex',
           alignItems: 'flex-end',
@@ -197,9 +227,17 @@ export function TransactionsChart() {
         {metrics.map((m, i) => {
           const heightPct = (m.transactionCount / maxTx) * 100;
           return (
-            <div
+            <button
               key={i}
+              type="button"
+              onClick={() => handleActivate(i)}
+              disabled={!onDrillDown}
               title={`${formatTime(m.timestamp)}: ${m.transactionCount} txs`}
+              aria-label={t('chart.barAriaLabel', {
+                time: formatTime(m.timestamp),
+                count: m.transactionCount,
+                successRate: m.successRate.toFixed(1),
+              })}
               style={{
                 flex: 1,
                 height: `${Math.max(heightPct, 2)}%`,
@@ -209,9 +247,19 @@ export function TransactionsChart() {
                     : m.successRate >= 95
                       ? 'var(--color-warning)'
                       : 'var(--color-error)',
+                border: 'none',
                 borderRadius: '2px 2px 0 0',
-                transition: 'height 0.3s ease',
+                transition: 'height 0.3s ease, opacity 0.15s ease',
                 minWidth: '2px',
+                padding: 0,
+                cursor: onDrillDown ? 'pointer' : 'default',
+                opacity: 1,
+              }}
+              onMouseEnter={(e) => {
+                if (onDrillDown) e.currentTarget.style.opacity = '0.75';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '1';
               }}
             />
           );
