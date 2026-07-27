@@ -77,8 +77,16 @@
     "successRate": "Erfolgsrate",
     "autoRefresh": "automatische Aktualisierung alle 30s",
     "updating": "Aktualisiere…",
-    "refreshChart": "Diagramm aktualisieren",
-    "ariaGroupLabel": "Transaktionsvolumen-Diagramm mit {{count}} Datenpunkten. Aktivieren Sie einen Balken, um die Transaktionen dieses Zeitraums anzuzeigen.",
-    "barAriaLabel": "{{time}}: {{count}} Transaktionen, {{successRate}}% Erfolgsrate. Aktivieren, um Transaktionen aus diesem Zeitraum anzuzeigen."
+    "refreshChart": "Diagramm aktualisieren"
+  },
+  "freshness": {
+    "justNow": "Gerade eben",
+    "minutesAgo": "vor {{count}} Minute",
+    "minutesAgo_plural": "vor {{count}} Minuten",
+    "hoursAgo": "vor {{count}} Stunde",
+    "hoursAgo_plural": "vor {{count}} Stunden",
+    "daysAgo": "vor {{count}} Tag",
+    "daysAgo_plural": "vor {{count}} Tagen",
+    "lastUpdated": "Zuletzt aktualisiert"
   }
 }

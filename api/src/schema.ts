@@ -59,33 +59,11 @@ export const typeDefs = /* GraphQL */ `
     totalLedgers: Int!
   }
 
-  type Stats {
-    totalLedgers: Int!
-    totalTransactions: Int!
-    totalOperations: Int!
-    totalAccounts: Int!
-    totalAssets: Int!
-    activeAccounts24h: Int!
-    volume24h: String!
-    averageFee24h: Float!
-    successRate24h: Float!
-    latestLedger: Int!
-    latestLedgerTime: String!
-  }
-
-  type NetworkMetrics {
-    timestamp: String!
-    transactionCount: Int!
-    operationCount: Int!
-    activeAccounts: Int!
-    totalVolume: String!
-    averageFee: Float!
-    successRate: Float!
-  }
-
-  input TimeRangeInput {
-    startTime: String
-    endTime: String
+  type DataFreshness {
+    ledgersLastUpdated: String!
+    transactionsLastUpdated: String!
+    operationsLastUpdated: String!
+    dashboardLastUpdated: String!
   }
 
   type AssetVolume {
@@ -118,6 +96,9 @@ export const typeDefs = /* GraphQL */ `
     
     # Aggregation helpers
     dailyTransactionCount(days: Int): [DailyCount!]!
+    
+    # Data freshness
+    dataFreshness: DataFreshness!
   }
 
   type DailyCount {

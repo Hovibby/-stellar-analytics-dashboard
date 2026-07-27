@@ -77,8 +77,16 @@
     "successRate": "Taux de succès",
     "autoRefresh": "actualisation automatique toutes les 30s",
     "updating": "Mise à jour…",
-    "refreshChart": "Actualiser le graphique",
-    "ariaGroupLabel": "Graphique du volume de transactions avec {{count}} points de données. Activez une barre pour consulter les transactions de cette période.",
-    "barAriaLabel": "{{time}} : {{count}} transactions, taux de réussite de {{successRate}}%. Activer pour voir les transactions de cette période."
+    "refreshChart": "Actualiser le graphique"
+  },
+  "freshness": {
+    "justNow": "À l'instant",
+    "minutesAgo": "il y a {{count}} minute",
+    "minutesAgo_plural": "il y a {{count}} minutes",
+    "hoursAgo": "il y a {{count}} heure",
+    "hoursAgo_plural": "il y a {{count}} heures",
+    "daysAgo": "il y a {{count}} jour",
+    "daysAgo_plural": "il y a {{count}} jours",
+    "lastUpdated": "Dernière mise à jour"
   }
 }

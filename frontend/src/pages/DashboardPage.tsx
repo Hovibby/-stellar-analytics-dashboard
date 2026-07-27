@@ -4,6 +4,7 @@
  * Replaces stub data with real API calls via useDashboardData.
  * Handles loading states, API errors, and retry logic.
  * Now includes paginated list views for ledgers and transactions.
+ * Includes data freshness indicators (issue #242).
  */
 import { TransactionsChart } from '../components/TransactionsChart';
 import { NetworkComparisonChart } from '../components/NetworkComparisonChart';
@@ -11,6 +12,8 @@ import { ExportControls } from '../components/ExportControls';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { useDashboardData } from '../hooks/useDashboardData';
+import { useDataFreshness } from '../hooks/useDataFreshness';
+import { DataFreshnessIndicator } from '../components/DataFreshnessIndicator';
 import { statsToArray } from '../utils/exportUtils';
 import { LedgersList } from '../components/LedgersList';
 import { TransactionsList } from '../components/TransactionsList';
@@ -20,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 
 export function DashboardPage() {
   const { data, loading, error, retry } = useDashboardData();
+  const { data: freshnessData } = useDataFreshness();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'ledgers' | 'transactions'>('dashboard');
   // Issue #230: chart drill-down — clicking a bar in TransactionsChart jumps
   // to the Transactions tab pre-filtered to that bar's time bucket.
@@ -127,6 +131,12 @@ export function DashboardPage() {
 
           {/* Theme toggle */}
           <ThemeToggle />
+
+          {/* Data freshness indicator */}
+          <DataFreshnessIndicator
+            lastUpdated={freshnessData?.dashboardLastUpdated || null}
+            label={t('freshness.lastUpdated')}
+          />
 
           {/* Export controls for dashboard metrics */}
           <ExportControls

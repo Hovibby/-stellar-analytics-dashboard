@@ -77,8 +77,16 @@
     "successRate": "成功率",
     "autoRefresh": "30秒ごとに自動更新",
     "updating": "更新中…",
-    "refreshChart": "チャートを更新",
-    "ariaGroupLabel": "{{count}}個のデータポイントを含む取引量チャート。バーを選択するとその期間の取引を確認できます。",
-    "barAriaLabel": "{{time}}: {{count}}件の取引、成功率{{successRate}}%。選択するとこの期間の取引を表示します。"
+    "refreshChart": "チャートを更新"
+  },
+  "freshness": {
+    "justNow": "たった今",
+    "minutesAgo": "{{count}}分前",
+    "minutesAgo_plural": "{{count}}分前",
+    "hoursAgo": "{{count}}時間前",
+    "hoursAgo_plural": "{{count}}時間前",
+    "daysAgo": "{{count}}日前",
+    "daysAgo_plural": "{{count}}日前",
+    "lastUpdated": "最終更新"
   }
 }

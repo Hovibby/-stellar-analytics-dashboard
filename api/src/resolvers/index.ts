@@ -206,6 +206,31 @@ export const resolvers = {
       [days]
     );
     return rows.map(r => ({ date: new Date(r.date).toISOString().split('T')[0], count: parseInt(r.count, 10) }));
+  },
+
+  dataFreshness: async () => {
+    const ledgersRes = await query("SELECT MAX(created_at) as last_updated FROM ledgers");
+    const transactionsRes = await query("SELECT MAX(created_at) as last_updated FROM transactions");
+    const operationsRes = await query("SELECT MAX(created_at) as last_updated FROM operations");
+
+    const ledgersLastUpdated = ledgersRes.rows[0].last_updated ? ledgersRes.rows[0].last_updated.toISOString() : null;
+    const transactionsLastUpdated = transactionsRes.rows[0].last_updated ? transactionsRes.rows[0].last_updated.toISOString() : null;
+    const operationsLastUpdated = operationsRes.rows[0].last_updated ? operationsRes.rows[0].last_updated.toISOString() : null;
+
+    // Dashboard freshness is the latest of all three
+    const timestamps = [
+      ledgersLastUpdated,
+      transactionsLastUpdated,
+      operationsLastUpdated
+    ].filter(Boolean);
+    const dashboardLastUpdated = timestamps.length > 0 ? timestamps.sort().reverse()[0] : null;
+
+    return {
+      ledgersLastUpdated: ledgersLastUpdated || nowIso(),
+      transactionsLastUpdated: transactionsLastUpdated || nowIso(),
+      operationsLastUpdated: operationsLastUpdated || nowIso(),
+      dashboardLastUpdated: dashboardLastUpdated || nowIso(),
+    };
   }
 };
 
