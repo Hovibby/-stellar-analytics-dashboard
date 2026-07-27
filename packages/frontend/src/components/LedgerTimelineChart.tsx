@@ -19,7 +19,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   Brush,
   ResponsiveContainer,
   Cell,
@@ -29,6 +28,8 @@ import { format } from 'date-fns';
 import { Database, Download, ImageIcon, RefreshCcw, Activity } from 'lucide-react';
 import { clsx } from 'clsx';
 import { LEDGERS_QUERY } from '@/graphql/queries';
+import { ChartTooltip } from './ChartTooltip';
+import { ChartLegend } from './ChartLegend';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -71,34 +72,24 @@ function LedgerTooltip({ active, payload }: TooltipProps<number, string>) {
   if (!d) return null;
 
   return (
-    <div className="bg-card border border-border rounded-xl shadow-xl p-3 text-xs min-w-[160px]">
-      <p className="font-bold text-primary mb-1.5 font-mono">#{d.sequence}</p>
-      <p className="text-muted-foreground mb-2 border-b border-border pb-1.5">
-        {format(new Date(d.closedAt), 'MMM dd HH:mm:ss')}
-      </p>
-      <div className="space-y-1">
-        <div className="flex justify-between gap-4">
-          <span className="text-green-500">✓ Successful</span>
-          <span className="font-mono font-semibold text-green-500">{d.successfulTx}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-red-500">✗ Failed</span>
-          <span className="font-mono font-semibold text-red-500">{d.failedTx}</span>
-        </div>
-        <div className="flex justify-between gap-4 border-t border-border pt-1.5 mt-1">
-          <span className="text-muted-foreground">Operations</span>
-          <span className="font-mono">{d.operationCount}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground">Success rate</span>
-          <span className="font-mono text-purple-500">{d.successRate}%</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground">Protocol</span>
-          <span className="font-mono">v{d.protocolVersion}</span>
-        </div>
-      </div>
-    </div>
+    <ChartTooltip
+      header={
+        <span className="flex items-center gap-2">
+          <span className="text-primary font-mono">#{d.sequence}</span>
+          <span className="text-muted-foreground font-normal text-[10px]">
+            {format(new Date(d.closedAt), 'MMM dd HH:mm:ss')}
+          </span>
+        </span>
+      }
+      minWidth={170}
+      rows={[
+        { label: 'Successful', value: d.successfulTx.toLocaleString(), color: '#10b981', dot: true },
+        { label: 'Failed', value: d.failedTx.toLocaleString(), color: '#ef4444', dot: true },
+        { label: 'Operations', value: d.operationCount.toLocaleString(), dot: true },
+        { label: 'Success Rate', value: `${d.successRate}%`, color: '#8b5cf6', dot: true },
+        { label: 'Protocol', value: `v${d.protocolVersion}`, dot: true },
+      ]}
+    />
   );
 }
 
@@ -188,6 +179,12 @@ export function LedgerTimelineChart() {
     { key: 'total', label: 'Total' },
     { key: 'ops', label: 'Operations' },
   ];
+
+  const legendItems = viewMode === 'stacked'
+    ? [{ label: 'Successful', color: '#10b981' }, { label: 'Failed', color: '#ef4444' }]
+    : viewMode === 'ops'
+      ? [{ label: 'Transactions', color: 'hsl(var(--primary))' }, { label: 'Operations', color: '#10b981' }]
+      : [{ label: 'Transactions', color: 'hsl(var(--primary))' }];
 
   return (
     <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
@@ -290,7 +287,7 @@ export function LedgerTimelineChart() {
               )}
 
               <Tooltip content={<LedgerTooltip />} />
-              <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} iconType="circle" iconSize={8} />
+              <ChartLegend items={legendItems} className="pt-2 pb-1" />
 
               {/* Stacked success/fail bars */}
               {viewMode === 'stacked' && (
