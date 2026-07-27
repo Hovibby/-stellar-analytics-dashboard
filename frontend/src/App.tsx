@@ -3,15 +3,19 @@
  *
  * Wraps the application in ApolloProvider so every component can use
  * Apollo hooks (useQuery, useMutation, useSubscription).
+ * Wraps the application in ThemeProvider for dark mode support.
  */
 import { ApolloProvider } from "@apollo/client";
 import { apolloClient } from "./graphql/client";
 import { DashboardPage } from "./pages/DashboardPage";
+import { ThemeProvider } from "./contexts/ThemeContext";
 
 export function App() {
   return (
-    <ApolloProvider client={apolloClient}>
-      <DashboardPage />
-    </ApolloProvider>
+    <ThemeProvider>
+      <ApolloProvider client={apolloClient}>
+        <DashboardPage />
+      </ApolloProvider>
+    </ThemeProvider>
   );
 }

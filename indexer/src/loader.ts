@@ -1,5 +1,6 @@
 import { Pool, PoolClient } from "pg";
 import { Readable } from "stream";
+import { loaderLogger } from "./logger.js";
 
 // Batch size for bulk inserts (issue #40)
 const BATCH_SIZE = 100;
@@ -196,7 +197,7 @@ export async function writeIngestedData(
   } catch (error) {
     await client.query("ROLLBACK");
     loaderLogger.error(
-      { error: error?.message ?? String(error), ledgerSequence: data?.ledger?.sequence },
+      { error: (error as Error)?.message ?? String(error), ledgerSequence: data?.ledger?.sequence },
       "Failed to write to database"
     );
     throw error;

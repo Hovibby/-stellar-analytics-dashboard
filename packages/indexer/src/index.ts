@@ -1,8 +1,10 @@
 import dotenv from 'dotenv';
+import { Pool } from 'pg';
 import { StellarService } from './services/stellar-service';
-import { IndexerService } from './services/indexer-service';
+import { IndexerService, type IndexerServiceOptions } from './services/indexer-service';
 import { db } from './database/connection';
 import { runMigrations } from './database/migrate';
+import { SchemaVersionManager } from './database/schema-version';
 import { STELLAR_NETWORKS, HORIZON_URLS } from '@stellar-analytics/shared';
 
 // Load environment variables
@@ -16,9 +18,12 @@ class IndexerApp {
   constructor() {
     const network = process.env.STELLAR_NETWORK || STELLAR_NETWORKS.PUBLIC;
     const horizonUrl = process.env.STELLAR_HORIZON_URL || HORIZON_URLS[network];
-    
+
     this.stellarService = new StellarService(horizonUrl);
-    this.indexerService = new IndexerService(this.stellarService);
+
+    // Allow operators to tune batch sizes via env vars for throughput/db-pressure balance
+    const indexerOptions: IndexerServiceOptions = {};
+    this.indexerService = new IndexerService(this.stellarService, indexerOptions);
     
     this.setupGracefulShutdown();
   }
@@ -34,9 +39,12 @@ class IndexerApp {
       await db.connect();
       console.log('✅ Database connections established');
       
-      // Run migrations
+      // Run migrations (includes schema-version check)
       await runMigrations();
       console.log('✅ Database migrations completed');
+
+      // Post-migration schema version validation
+      await this.validateSchemaCompatibility();
       
       // Test Horizon connection
       const isConnected = await this.stellarService.testConnection();
@@ -71,6 +79,48 @@ class IndexerApp {
     
     if (missingVars.length > 0) {
       throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+    }
+  }
+
+  /**
+   * Validate that the running database schema is compatible with this code.
+   * This is a safety net – runMigrations() should already ensure compatibility,
+   * but this double-checks even if migrations were skipped (e.g. read-replica).
+   */
+  private async validateSchemaCompatibility(): Promise<void> {
+    try {
+      const pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        max: 1,
+      });
+
+      const versionManager = new SchemaVersionManager(pool);
+      const result = await versionManager.checkCompatibility();
+
+      if (!result.compatible) {
+        const level = result.fatal ? '❌ FATAL' : '⚠️  WARNING';
+        console.error(`${level}: ${result.message}`);
+        if (result.fatal) {
+          await pool.end();
+          throw new Error(result.message);
+        }
+      } else {
+        console.log(`✅ ${result.message}`);
+      }
+
+      await pool.end();
+    } catch (err) {
+      // Only re-throw fatal errors; non-fatal warnings are logged
+      if (err instanceof Error && err.message.includes('FATAL')) {
+        throw err;
+      }
+      // If the schema_version table doesn't exist yet (fresh DB before migrations),
+      // that's expected and handled by runMigrations().
+      console.warn(
+        `⚠️  Schema version check skipped: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
   }
 
@@ -115,6 +165,56 @@ class IndexerApp {
         this.indexerService.resetCircuitBreaker();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ message: 'Circuit breaker reset to CLOSED', timestamp: new Date().toISOString() }));
+
+      // ── POST /backfill (manual backfill from sequence) ───────────────────
+      } else if (req.url === '/backfill' && req.method === 'POST') {
+        try {
+          const adminToken = process.env.BACKFILL_ADMIN_TOKEN;
+
+          let body = '';
+          req.on('data', (chunk: any) => { body += chunk; });
+          req.on('end', async () => {
+            try {
+              const payload = body ? JSON.parse(body) : {};
+              const startSequence = Number(payload.startSequence ?? payload.start ?? payload.sequence);
+              const endSequence = payload.endSequence !== undefined ? Number(payload.endSequence) : undefined;
+
+              // If an admin token is configured, require it in the Authorization header or payload
+              if (adminToken) {
+                const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+                const provided = authHeader && String(authHeader).startsWith('Bearer ')
+                  ? String(authHeader).slice(7)
+                  : payload.token || payload.adminToken;
+
+                if (!provided || provided !== adminToken) {
+                  res.writeHead(401, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ error: 'unauthorized' }));
+                  return;
+                }
+              }
+
+              if (!Number.isFinite(startSequence) || startSequence <= 0) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'startSequence must be a positive integer' }));
+                return;
+              }
+
+              // Fire-and-forget: start backfill but respond immediately
+              this.indexerService.backfillFromSequence(startSequence, endSequence).catch((err: any) => {
+                console.error('[indexer] manual backfill failed:', err);
+              });
+
+              res.writeHead(202, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ message: 'Backfill started', startSequence, endSequence, timestamp: new Date().toISOString() }));
+            } catch (err: any) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'invalid JSON payload', detail: err.message }));
+            }
+          });
+        } catch (err: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
 
       } else {
         res.writeHead(404);

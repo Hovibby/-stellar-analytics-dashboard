@@ -7,30 +7,30 @@ Monorepo scaffold for a Stellar blockchain analytics platform with a data pipeli
 ```text
 .
 +-- indexer/
-ù   +-- src/
-ù       +-- ingester.ts
-ù       +-- transformer.ts
-ù       +-- loader.ts
-ù       +-- websocket.ts
-ù       +-- index.ts
-ù       +-- database/schema.sql
+ÔøΩ   +-- src/
+ÔøΩ       +-- ingester.ts
+ÔøΩ       +-- transformer.ts
+ÔøΩ       +-- loader.ts
+ÔøΩ       +-- websocket.ts
+ÔøΩ       +-- index.ts
+ÔøΩ       +-- database/schema.sql
 +-- api/
-ù   +-- src/
-ù       +-- schema.ts
-ù       +-- resolvers/
-ù       +-- index.ts
+ÔøΩ   +-- src/
+ÔøΩ       +-- schema.ts
+ÔøΩ       +-- resolvers/
+ÔøΩ       +-- index.ts
 +-- frontend/
-ù   +-- src/
-ù       +-- components/
-ù       +-- hooks/
-ù       +-- pages/
-ù       +-- App.tsx
-ù       +-- main.tsx
+ÔøΩ   +-- src/
+ÔøΩ       +-- components/
+ÔøΩ       +-- hooks/
+ÔøΩ       +-- pages/
+ÔøΩ       +-- App.tsx
+ÔøΩ       +-- main.tsx
 +-- shared/
-ù   +-- src/
-ù       +-- config/networks.ts
-ù       +-- types/
-ù       +-- utils/
+ÔøΩ   +-- src/
+ÔøΩ       +-- config/networks.ts
+ÔøΩ       +-- types/
+ÔøΩ       +-- utils/
 +-- docker-compose.yml
 +-- package.json
 +-- pnpm-workspace.yaml
@@ -64,6 +64,14 @@ pnpm install
 docker compose up -d postgres redis
 ```
 
+### CI/CD
+
+This repository includes GitHub Actions workflows for:
+- PR validation with lint and build checks
+- automated E2E testing for feature branches
+- staging and production container deployment pipelines
+- manual rollback via workflow dispatch
+
 Backups are automated by the `postgres-backup` service when running full compose (`docker compose up -d`), and you can run backup operations manually:
 
 ```bash
@@ -84,6 +92,19 @@ pnpm --filter @stellar-analytics/frontend dev
 
 - API GraphQL + playground: `http://localhost:4000/graphql`
 - Frontend (Vite): `http://localhost:5173`
+
+## API Examples
+
+Ready-to-run GraphQL examples for the **dashboard**, **account** and
+**network analytics** endpoint families (with cURL invocations and
+expected responses) live in [`docs/api-examples.md`](docs/api-examples.md).
+
+See also:
+
+- [`docs/graphql-query-standards.md`](docs/graphql-query-standards.md) ‚Äî naming & linting rules
+- [`docs/graphql-query-limits.md`](docs/graphql-query-limits.md) ‚Äî depth and complexity limits
+- [`docs/query-performance.md`](docs/query-performance.md) ‚Äî DataLoader batching & slow-query monitoring
+
 
 ## Database Migrations
 

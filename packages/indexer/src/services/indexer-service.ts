@@ -7,7 +7,7 @@
  *   #34 – WebSocket reconnection with exponential backoff
  *   #37 – Rate limiting for Horizon API
  *   #39 – Data validation via Zod schemas before any DB write
- *   #41 – Circuit breaker wrapping all Horizon API calls
+ *   #41 – Circuit breaker wrapping all Horizon API calls (in StellarService)
  *   #43 – Prometheus metrics for every significant operation
  *   #44 – Idempotency: skip already-processed ledgers
  *   #36 – Dead letter queue for failed ledger recovery
@@ -16,8 +16,13 @@
 import { Horizon } from '@stellar/stellar-sdk';
 import { StellarService } from './stellar-service';
 import { db } from '../database/connection';
-import { INDEXER, PAYMENT_OPERATIONS, DEX_OPERATIONS } from '@stellar-analytics/shared';
-import { CircuitBreaker, CircuitOpenError } from '../circuit-breaker/CircuitBreaker';
+import {
+  INDEXER,
+  PAYMENT_OPERATIONS,
+  DEX_OPERATIONS,
+  getCachedIndexerConfig,
+} from '@stellar-analytics/shared';
+import { CircuitOpenError } from '../circuit-breaker/CircuitBreaker';
 import { metrics } from '../metrics/IndexerMetrics';
 import { IdempotencyTracker } from '../idempotency/IdempotencyTracker';
 import { RateLimiter } from '../rate-limiter/RateLimiter';
@@ -29,26 +34,69 @@ import {
   validateRecords,
 } from '../validation/schemas';
 import { dlq } from '../error-recovery/DeadLetterQueue';
+import {
+  TransactionTracking,
+  TX_IDEMPOTENCY_PREFIX,
+} from '../idempotency/IdempotencyTracker';
+
+export interface IndexerServiceOptions {
+  /**
+   * Number of ledgers to fetch per backfill batch.
+   * Defaults to INDEXER.BACKFILL_BATCH_SIZE (1000), overridable via
+   * the BACKFILL_BATCH_SIZE env var.
+   */
+  backfillBatchSize?: number;
+
+  /**
+   * Number of ledgers to process per batch during real-time ingestion.
+   * Defaults to INDEXER.BATCH_SIZE (100), overridable via
+   * the LEDGER_BATCH_SIZE env var.
+   */
+  ledgerBatchSize?: number;
+
+  /**
+   * Number of transactions to batch per DB insert.
+   * Default 50.
+   */
+  transactionBatchSize?: number;
+
+  /**
+   * Number of operations to batch per DB insert.
+   * Default 100.
+   */
+  operationBatchSize?: number;
+}
 
 export class IndexerService {
   private stellarService: StellarService;
   private isRunning: boolean = false;
   private lastProcessedLedger: number = 0;
+  private lastLedgerProcessedAt: number | null = null;
   private websocketReconnectAttempts: number = 0;
 
-  private readonly circuitBreaker: CircuitBreaker;
   private readonly idempotency: IdempotencyTracker;
   private readonly rateLimiter: RateLimiter;
 
-  constructor(stellarService: StellarService) {
+  /** Configured batch sizes */
+  readonly backfillBatchSize: number;
+  readonly ledgerBatchSize: number;
+  readonly transactionBatchSize: number;
+  readonly operationBatchSize: number;
+
+  constructor(
+    stellarService: StellarService,
+    options: IndexerServiceOptions = {},
+  ) {
     this.stellarService = stellarService;
 
-    this.circuitBreaker = new CircuitBreaker({
-      name: 'HorizonAPI',
-      failureThreshold: 5,
-      cooldownMs: 5 * 60 * 1000, // 5 minutes
-      successThreshold: 2,
-    });
+    // Resolve batch sizes: explicit options > env vars > defaults
+    const cfg = getCachedIndexerConfig();
+    this.backfillBatchSize = options.backfillBatchSize ?? cfg.backfillBatchSize;
+    this.ledgerBatchSize = options.ledgerBatchSize ?? cfg.ledgerBatchSize;
+    this.transactionBatchSize =
+      options.transactionBatchSize ?? cfg.transactionBatchSize;
+    this.operationBatchSize =
+      options.operationBatchSize ?? cfg.operationBatchSize;
 
     // Issue #37 – Rate limiter for Horizon API: 2000 requests per minute
     this.rateLimiter = new RateLimiter({
@@ -117,9 +165,8 @@ export class IndexerService {
       console.log(`[indexer] resuming from ledgers table at ledger ${this.lastProcessedLedger}`);
     } else {
       // Issue #37 – Apply rate limiter to Horizon API calls
-      const horizonLatest = await this.circuitBreaker.execute(() =>
-        this.rateLimiter.consume().then(() => this.stellarService.getLatestLedger()),
-      );
+      await this.rateLimiter.consume();
+      const horizonLatest = await this.stellarService.getLatestLedger();
       this.lastProcessedLedger = horizonLatest.sequence - 1;
       console.log(`[indexer] starting fresh from ledger ${this.lastProcessedLedger}`);
     }
@@ -180,14 +227,14 @@ export class IndexerService {
     let horizonLatest: Horizon.ServerApi.LedgerRecord;
     try {
       // Issue #37 – Apply rate limiter to Horizon API calls
-      horizonLatest = await this.circuitBreaker.execute(() =>
-        this.rateLimiter.consume().then(() => this.stellarService.getLatestLedger()),
-      );
+      await this.rateLimiter.consume();
+      horizonLatest = await this.stellarService.getLatestLedger();
     } catch (err) {
       if (err instanceof CircuitOpenError) {
         console.warn('[indexer] circuit open – skipping backfill');
         return;
       }
+      metrics.horizonRequestErrorsTotal.inc({ endpoint: 'latest_ledger' });
       throw err;
     }
 
@@ -196,17 +243,54 @@ export class IndexerService {
     }
   }
 
+  /**
+   * Public API: backfill from a specific ledger sequence.
+   * If `endSequence` is omitted, backfill up to `latestLedger.sequence - 10`.
+   */
+  async backfillFromSequence(startSequence: number, endSequence?: number): Promise<void> {
+    console.log(`[indexer] manual backfill requested from ${startSequence}${endSequence ? ` to ${endSequence}` : ''}`);
+
+    if (!Number.isInteger(startSequence) || startSequence <= 0) {
+      throw new Error('startSequence must be a positive integer');
+    }
+
+    let horizonLatest: Horizon.ServerApi.LedgerRecord;
+    try {
+      // Apply rate limiter when querying Horizon
+      await this.rateLimiter.consume();
+      horizonLatest = await this.stellarService.getLatestLedger();
+    } catch (err) {
+      if (err instanceof CircuitOpenError) {
+        console.warn('[indexer] circuit open – cannot perform manual backfill');
+        return;
+      }
+      throw err;
+    }
+
+    const resolvedEnd = endSequence && Number.isInteger(endSequence) && endSequence > 0
+      ? endSequence
+      : Math.max(horizonLatest.sequence - 10, startSequence);
+
+    if (startSequence > resolvedEnd) {
+      console.log(`[indexer] startSequence ${startSequence} is after end ${resolvedEnd}; nothing to backfill`);
+      return;
+    }
+
+    await this.backfillLedgers(startSequence, resolvedEnd);
+  }
+
   private async backfillLedgers(startSequence: number, endSequence: number): Promise<void> {
     console.log(`[indexer] backfilling ledgers ${startSequence} → ${endSequence}`);
+    console.log(`[indexer] batch size: ${this.backfillBatchSize} ledgers per batch`);
 
     for (
       let sequence = startSequence;
       sequence <= endSequence;
-      sequence += INDEXER.BACKFILL_BATCH_SIZE
+      sequence += this.backfillBatchSize
     ) {
       if (!this.isRunning) break;
 
-      const batchEnd = Math.min(sequence + INDEXER.BACKFILL_BATCH_SIZE - 1, endSequence);
+      const batchEnd = Math.min(sequence + this.backfillBatchSize - 1, endSequence);
 
       try {
         await this.processLedgerBatch(sequence, batchEnd);
@@ -224,15 +308,15 @@ export class IndexerService {
     for (let sequence = startSequence; sequence <= endSequence; sequence++) {
       try {
         // Issue #37 – Apply rate limiter to Horizon API calls
-        const ledger = await this.circuitBreaker.execute(() =>
-          this.rateLimiter.consume().then(() => this.stellarService.getLedger(sequence)),
-        );
+        await this.rateLimiter.consume();
+        const ledger = await this.stellarService.getLedger(sequence);
         ledgers.push(ledger);
       } catch (error) {
         if (error instanceof CircuitOpenError) {
           console.warn(`[indexer] circuit open – aborting batch at sequence ${sequence}`);
           return;
         }
+        metrics.horizonRequestErrorsTotal.inc({ endpoint: 'ledger' });
         console.error(`[indexer] error fetching ledger ${sequence}:`, error);
         metrics.errorsTotal.inc({ type: 'fetch_ledger' });
       }
@@ -271,37 +355,43 @@ export class IndexerService {
       await db.transaction(async (client) => {
         // ── DB write: ledger ──────────────────────────────────────────────────
         const dbWriteEnd = metrics.dbWriteDuration.startTimer({ table: 'ledgers' });
-        await client.query(
-          `INSERT INTO ledgers (
-            id, sequence, successful_transaction_count, failed_transaction_count,
-            operation_count, tx_set_operation_count, closed_at, total_coins,
-            fee_pool, base_fee_in_stroops, base_reserve_in_stroops,
-            max_tx_set_size, protocol_version, header_xdr
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-          ON CONFLICT (sequence) DO UPDATE SET
-            successful_transaction_count = EXCLUDED.successful_transaction_count,
-            failed_transaction_count     = EXCLUDED.failed_transaction_count,
-            operation_count              = EXCLUDED.operation_count,
-            tx_set_operation_count       = EXCLUDED.tx_set_operation_count,
-            updated_at                   = NOW()`,
-          [
-            ledger.id,
-            ledger.sequence,
-            ledger.successful_transaction_count,
-            ledger.failed_transaction_count,
-            ledger.operation_count,
-            ledger.tx_set_operation_count,
-            ledger.closed_at,
-            ledger.total_coins,
-            ledger.fee_pool,
-            ledger.base_fee_in_stroops,
-            ledger.base_reserve_in_stroops,
-            ledger.max_tx_set_size,
-            ledger.protocol_version,
-            ledger.header_xdr,
-          ],
-        );
-        dbWriteEnd();
+        try {
+          await client.query(
+            `INSERT INTO ledgers (
+              id, sequence, successful_transaction_count, failed_transaction_count,
+              operation_count, tx_set_operation_count, closed_at, total_coins,
+              fee_pool, base_fee_in_stroops, base_reserve_in_stroops,
+              max_tx_set_size, protocol_version, header_xdr
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            ON CONFLICT (sequence) DO UPDATE SET
+              successful_transaction_count = EXCLUDED.successful_transaction_count,
+              failed_transaction_count     = EXCLUDED.failed_transaction_count,
+              operation_count              = EXCLUDED.operation_count,
+              tx_set_operation_count       = EXCLUDED.tx_set_operation_count,
+              updated_at                   = NOW()`,
+            [
+              ledger.id,
+              ledger.sequence,
+              ledger.successful_transaction_count,
+              ledger.failed_transaction_count,
+              ledger.operation_count,
+              ledger.tx_set_operation_count,
+              ledger.closed_at,
+              ledger.total_coins,
+              ledger.fee_pool,
+              ledger.base_fee_in_stroops,
+              ledger.base_reserve_in_stroops,
+              ledger.max_tx_set_size,
+              ledger.protocol_version,
+              ledger.header_xdr,
+            ],
+          );
+        } catch (error) {
+          metrics.dbWriteErrorsTotal.inc({ table: 'ledgers' });
+          throw error;
+        } finally {
+          dbWriteEnd();
+        }
 
         // ── Transactions ──────────────────────────────────────────────────────
         await this.processTransactionsForLedger(ledger.sequence, client);
@@ -324,8 +414,17 @@ export class IndexerService {
       metrics.ledgersProcessed.inc();
       metrics.lastProcessedLedger.set(ledger.sequence);
 
+      const now = Date.now();
+      if (this.lastLedgerProcessedAt !== null) {
+        const intervalSeconds = (now - this.lastLedgerProcessedAt) / 1000;
+        if (intervalSeconds > 0) {
+          metrics.setLedgerIngestionRate(1 / intervalSeconds);
+        }
+      }
+      this.lastLedgerProcessedAt = now;
+
       // Update circuit breaker state gauge
-      metrics.setCircuitBreakerState(this.circuitBreaker.getState());
+      metrics.setCircuitBreakerState(this.stellarService.getCircuitBreakerState());
     } catch (error) {
       console.error(`[indexer] error processing ledger ${(rawLedger as any)?.sequence}:`, error);
       metrics.errorsTotal.inc({ type: 'process_ledger' });
@@ -346,17 +445,22 @@ export class IndexerService {
     client: any,
   ): Promise<void> {
     // ── #37 Rate limiter + #41 Circuit breaker ───────────────────────────────────
+    metrics.horizonRequestsTotal.inc({ endpoint: 'transactions' });
     const horizonEnd = metrics.horizonRequestDuration.startTimer({ endpoint: 'transactions' });
     let rawTransactions: Horizon.ServerApi.CollectionPage<Horizon.ServerApi.TransactionRecord>;
     try {
-      rawTransactions = await this.circuitBreaker.execute(() =>
-        this.rateLimiter.consume().then(() => this.stellarService.getTransactionsForLedger(ledgerSequence)),
-      );
+      if (this.stellarService.getCircuitBreakerState() === 'OPEN') {
+        console.warn(`[indexer] circuit open – skipping transactions for ledger ${ledgerSequence}`);
+        return;
+      }
+      await this.rateLimiter.consume();
+      rawTransactions = await this.stellarService.getTransactionsForLedger(ledgerSequence);
     } catch (err) {
       if (err instanceof CircuitOpenError) {
         console.warn(`[indexer] circuit open – skipping transactions for ledger ${ledgerSequence}`);
         return;
       }
+      metrics.horizonRequestErrorsTotal.inc({ endpoint: 'transactions' });
       throw err;
     } finally {
       horizonEnd();
@@ -376,10 +480,41 @@ export class IndexerService {
       );
     }
 
+    // ── Duplicate transaction detection ────────────────────────────────────
+    const txHashes = transactions.map(
+      (tx) => (tx as any).hash as string,
+    );
+
+    const { duplicates } =
+      await TransactionTracking.filterDuplicateTxHashes(
+        this.idempotency,
+        txHashes,
+      );
+
+    if (duplicates.length > 0) {
+      metrics.duplicateTransactionsSkipped.inc(duplicates.length);
+      console.log(
+        `[indexer] skipping ${duplicates.length} duplicate transaction(s) in ` +
+          `ledger ${ledgerSequence}: ${duplicates.slice(0, 5).join(', ')}` +
+          (duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''),
+      );
+    }
+
+    // ── Process only unprocessed transactions ──────────────────────────────
+    const duplicateSet = new Set(duplicates);
     for (const tx of transactions) {
-      await this.processTransaction(
-        tx as unknown as Horizon.ServerApi.TransactionRecord,
-        client,
+      const txRecord = tx as unknown as Horizon.ServerApi.TransactionRecord;
+
+      // Skip if this transaction was already processed
+      if (duplicateSet.has(txRecord.hash)) continue;
+
+      await this.processTransaction(txRecord, client);
+
+      // Mark as processed immediately (so subsequent retries skip it)
+      await TransactionTracking.markTransactionProcessed(
+        this.idempotency,
+        txRecord.hash,
+        ledgerSequence,
       );
     }
   }
@@ -390,46 +525,51 @@ export class IndexerService {
   ): Promise<void> {
     const dbWriteEnd = metrics.dbWriteDuration.startTimer({ table: 'transactions' });
     try {
-      await client.query(
-        `INSERT INTO transactions (
-          id, paging_token, successful, hash, ledger_sequence, created_at,
-          source_account, source_account_sequence, fee_account, fee_charged,
-          max_fee, operation_count, envelope_xdr, result_xdr, result_meta_xdr,
-          fee_meta_xdr, memo_type, memo, signatures, valid_after, valid_before,
-          fee_bump_transaction, inner_transaction_hash, inner_transaction_signatures
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
-        ON CONFLICT (hash) DO UPDATE SET
-          successful = EXCLUDED.successful,
-          updated_at = NOW()`,
-        [
-          txRecord.id,
-          txRecord.paging_token,
-          txRecord.successful,
-          txRecord.hash,
-          txRecord.ledger,
-          txRecord.created_at,
-          txRecord.source_account,
-          txRecord.source_account_sequence,
-          txRecord.fee_account,
-          txRecord.fee_charged,
-          txRecord.max_fee,
-          txRecord.operation_count,
-          txRecord.envelope_xdr,
-          txRecord.result_xdr,
-          txRecord.result_meta_xdr,
-          txRecord.fee_meta_xdr,
-          txRecord.memo_type || 'none',
-          txRecord.memo,
-          JSON.stringify(txRecord.signatures),
-          txRecord.valid_after,
-          txRecord.valid_before,
-          txRecord.fee_bump_transaction,
-          txRecord.inner_transaction?.hash,
-          txRecord.inner_transaction
-            ? JSON.stringify(txRecord.inner_transaction.signatures)
-            : null,
-        ],
-      );
+      try {
+        await client.query(
+          `INSERT INTO transactions (
+            id, paging_token, successful, hash, ledger_sequence, created_at,
+            source_account, source_account_sequence, fee_account, fee_charged,
+            max_fee, operation_count, envelope_xdr, result_xdr, result_meta_xdr,
+            fee_meta_xdr, memo_type, memo, signatures, valid_after, valid_before,
+            fee_bump_transaction, inner_transaction_hash, inner_transaction_signatures
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+          ON CONFLICT (hash) DO UPDATE SET
+            successful = EXCLUDED.successful,
+            updated_at = NOW()`,
+          [
+            txRecord.id,
+            txRecord.paging_token,
+            txRecord.successful,
+            txRecord.hash,
+            txRecord.ledger,
+            txRecord.created_at,
+            txRecord.source_account,
+            txRecord.source_account_sequence,
+            txRecord.fee_account,
+            txRecord.fee_charged,
+            txRecord.max_fee,
+            txRecord.operation_count,
+            txRecord.envelope_xdr,
+            txRecord.result_xdr,
+            txRecord.result_meta_xdr,
+            txRecord.fee_meta_xdr,
+            txRecord.memo_type || 'none',
+            txRecord.memo,
+            JSON.stringify(txRecord.signatures),
+            txRecord.valid_after,
+            txRecord.valid_before,
+            txRecord.fee_bump_transaction,
+            txRecord.inner_transaction?.hash,
+            txRecord.inner_transaction
+              ? JSON.stringify(txRecord.inner_transaction.signatures)
+              : null,
+          ],
+        );
+      } catch (error) {
+        metrics.dbWriteErrorsTotal.inc({ table: 'transactions' });
+        throw error;
+      }
     } finally {
       dbWriteEnd();
     }
@@ -447,13 +587,19 @@ export class IndexerService {
     transactionHash: string,
     client: any,
   ): Promise<void> {
+    metrics.horizonRequestsTotal.inc({ endpoint: 'operations' });
     const horizonEnd = metrics.horizonRequestDuration.startTimer({ endpoint: 'operations' });
     let rawOperations: Horizon.ServerApi.CollectionPage<Horizon.ServerApi.OperationRecord>;
     try {
+      if (this.stellarService.getCircuitBreakerState() === 'OPEN') {
+        console.warn(
+          `[indexer] circuit open – skipping operations for tx ${transactionHash}`,
+        );
+        return;
+      }
       // Issue #37 – Apply rate limiter to Horizon API calls
-      rawOperations = await this.circuitBreaker.execute(() =>
-        this.rateLimiter.consume().then(() => this.stellarService.getOperationsForTransaction(transactionHash)),
-      );
+      await this.rateLimiter.consume();
+      rawOperations = await this.stellarService.getOperationsForTransaction(transactionHash);
     } catch (err) {
       if (err instanceof CircuitOpenError) {
         console.warn(
@@ -461,6 +607,7 @@ export class IndexerService {
         );
         return;
       }
+      metrics.horizonRequestErrorsTotal.inc({ endpoint: 'operations' });
       throw err;
     } finally {
       horizonEnd();
@@ -496,28 +643,33 @@ export class IndexerService {
 
     const dbWriteEnd = metrics.dbWriteDuration.startTimer({ table: 'operations' });
     try {
-      await client.query(
-        `INSERT INTO operations (
-          id, paging_token, transaction_hash, transaction_successful,
-          type, created_at, source_account, ledger_sequence, operation_index, details
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-        ON CONFLICT (id) DO UPDATE SET
-          transaction_successful = EXCLUDED.transaction_successful,
-          details                = EXCLUDED.details,
-          updated_at             = NOW()`,
-        [
-          opRecord.id,
-          opRecord.paging_token,
-          opRecord.transaction_hash,
-          opRecord.transaction_successful,
-          opRecord.type,
-          opRecord.created_at,
-          opRecord.source_account,
-          opRecord.id.split('-')[0],
-          parseInt(opRecord.id.split('-')[1]),
-          JSON.stringify(details),
-        ],
-      );
+      try {
+        await client.query(
+          `INSERT INTO operations (
+            id, paging_token, transaction_hash, transaction_successful,
+            type, created_at, source_account, ledger_sequence, operation_index, details
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          ON CONFLICT (id) DO UPDATE SET
+            transaction_successful = EXCLUDED.transaction_successful,
+            details                = EXCLUDED.details,
+            updated_at             = NOW()`,
+          [
+            opRecord.id,
+            opRecord.paging_token,
+            opRecord.transaction_hash,
+            opRecord.transaction_successful,
+            opRecord.type,
+            opRecord.created_at,
+            opRecord.source_account,
+            opRecord.id.split('-')[0],
+            parseInt(opRecord.id.split('-')[1]),
+            JSON.stringify(details),
+          ],
+        );
+      } catch (error) {
+        metrics.dbWriteErrorsTotal.inc({ table: 'operations' });
+        throw error;
+      }
     } finally {
       dbWriteEnd();
     }
@@ -677,21 +829,33 @@ export class IndexerService {
     isRunning: boolean;
     lastProcessedLedger: number;
     horizonUrl: string;
-    circuitBreaker: ReturnType<CircuitBreaker['getStats']>;
+    circuitBreaker: ReturnType<StellarService['getCircuitBreakerStats']>;
     idempotencyCacheSize: number;
+    batchConfig: {
+      backfillBatchSize: number;
+      ledgerBatchSize: number;
+      transactionBatchSize: number;
+      operationBatchSize: number;
+    };
   }> {
     return {
       isRunning: this.isRunning,
       lastProcessedLedger: this.lastProcessedLedger,
       horizonUrl: this.stellarService.getHorizonUrl(),
-      circuitBreaker: this.circuitBreaker.getStats(),
+      circuitBreaker: this.stellarService.getCircuitBreakerStats(),
       idempotencyCacheSize: this.idempotency.cacheSize(),
+      batchConfig: {
+        backfillBatchSize: this.backfillBatchSize,
+        ledgerBatchSize: this.ledgerBatchSize,
+        transactionBatchSize: this.transactionBatchSize,
+        operationBatchSize: this.operationBatchSize,
+      },
     };
   }
 
   /** Manually reset the circuit breaker (e.g. from an admin endpoint). */
   resetCircuitBreaker(): void {
-    this.circuitBreaker.reset();
+    this.stellarService.resetCircuitBreaker();
     metrics.setCircuitBreakerState('CLOSED');
   }
 }

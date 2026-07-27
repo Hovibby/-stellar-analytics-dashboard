@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "Tableau de Bord Stellar Analytics",
+    "network": "Réseau",
+    "latestLedger": "Dernier registre",
+    "refreshing": "Actualisation…",
+    "retry": "Réessayer",
+    "switchToDarkMode": "Passer en mode sombre",
+    "switchToLightMode": "Passer en mode clair"
+  },
+  "tabs": {
+    "dashboard": "Tableau de bord",
+    "ledgers": "Registres",
+    "transactions": "Transactions"
+  },
+  "errors": {
+    "failedToLoad": "Échec du chargement des données du tableau de bord",
+    "couldNotRefresh": "Impossible d'actualiser les données",
+    "exportFailed": "Échec de l'exportation. Veuillez réessayer."
+  },
+  "metrics": {
+    "totalLedgers": "Total des Registres",
+    "totalTransactions": "Total des Transactions",
+    "totalOperations": "Total des Opérations",
+    "totalAccounts": "Total des Comptes",
+    "activeAccounts24h": "Comptes Actifs (24h)",
+    "volume24h": "Volume (24h)",
+    "avgFee24h": "Frais Moyens (24h)",
+    "successRate24h": "Taux de Succès (24h)"
+  },
+  "export": {
+    "format": "Format",
+    "from": "De",
+    "to": "À",
+    "exportData": "Exporter les Données",
+    "exporting": "Exportation"
+  },
+  "ledgers": {
+    "title": "Registres",
+    "sequence": "Séquence",
+    "successfulTx": "Tx Réussies",
+    "failedTx": "Tx Échouées",
+    "operations": "Opérations",
+    "closedAt": "Fermé À",
+    "noData": "Aucun registre disponible pour le moment. L'indexeur est peut-être encore en synchronisation."
+  },
+  "transactions": {
+    "title": "Transactions",
+    "hash": "Hash",
+    "status": "Statut",
+    "ledger": "Registre",
+    "sourceAccount": "Compte Source",
+    "fee": "Frais",
+    "operations": "Opérations",
+    "createdAt": "Créé À",
+    "noData": "Aucune transaction disponible pour le moment. L'indexeur est peut-être encore en synchronisation.",
+    "success": "Succès",
+    "failed": "Échec"
+  },
+  "pagination": {
+    "itemsPerPage": "Éléments par page",
+    "showing": "Affichage {{current}} sur {{total}}",
+    "previous": "Précédent",
+    "next": "Suivant",
+    "switchToPageNav": "Passer à la Navigation par Page",
+    "enableInfiniteScroll": "Activer le Défilement Infini"
+  },
+  "chart": {
+    "transactionVolume24h": "Volume des Transactions (24h)",
+    "loading": "Chargement du graphique de transactions",
+    "noData": "Aucune donnée disponible pour le moment. L'indexeur est peut-être encore en synchronisation.",
+    "totalTxs": "Total des txs",
+    "avgFee": "Frais moy",
+    "successRate": "Taux de succès",
+    "autoRefresh": "actualisation automatique toutes les 30s",
+    "updating": "Mise à jour…",
+    "refreshChart": "Actualiser le graphique"
+  }
+}

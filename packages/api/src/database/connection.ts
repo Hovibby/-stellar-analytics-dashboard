@@ -73,6 +73,7 @@ export class DatabaseConnection {
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
+      statement_timeout: 30000, // 30s default timeout
     });
 
     this.redis = createClient({
@@ -246,9 +247,25 @@ export class DatabaseConnection {
     return result === 1;
   }
 
+  public async cacheDelPattern(pattern: string): Promise<number> {
+    const keys = await this.redis.keys(pattern);
+    if (keys.length === 0) {
+      return 0;
+    }
+    return await this.redis.del(keys);
+  }
+
+  public async cacheGetTTL(key: string): Promise<number> {
+    return await this.redis.ttl(key);
+  }
+
+  public async cacheRefresh(key: string, ttl: number): Promise<void> {
+    await this.redis.expire(key, ttl);
+  }
+
   // Cache monitoring
   public async getCacheStats(): Promise<{ keys: number; memory: string }> {
-    const keys = await this.redis.dbsize();
+    const keys = await this.redis.dbSize();
     const info = await this.redis.info('memory');
     return { keys, memory: info || 'unknown' };
   }

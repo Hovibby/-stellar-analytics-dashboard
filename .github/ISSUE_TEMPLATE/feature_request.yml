@@ -1,0 +1,83 @@
+name: Feature Request
+description: Propose a new feature or enhancement for the Stellar Analytics Dashboard
+title: "feat: "
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to suggest a feature!
+        A maintainer will score and prioritise this during the next triage meeting.
+        Please fill in as much detail as you can — better detail leads to a higher-confidence RICE score.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user need or gap does this address? Who is affected and how often?
+      placeholder: "As a [type of user], I want [some goal] so that [some reason]."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the desired behaviour. Include UI mockups or API shapes if helpful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Bulleted list of measurable, testable outcomes. These become the definition of done.
+      placeholder: |
+        - [ ] When X happens, Y is displayed
+        - [ ] The API returns Z within N ms
+        - [ ] Docs are updated
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area(s)
+      description: Which part(s) of the monorepo does this touch?
+      multiple: true
+      options:
+        - frontend
+        - api
+        - indexer
+        - shared
+        - docs
+        - devops / ci
+    validations:
+      required: true
+
+  - type: dropdown
+    id: effort
+    attributes:
+      label: Estimated effort (your best guess)
+      description: How long do you think implementation will take?
+      options:
+        - "XS – less than 1 day"
+        - "S – about 1 day"
+        - "M – about 3 days"
+        - "L – 1 to 2 weeks"
+        - "XL – more than 2 weeks"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you considered any workarounds or alternative approaches? Why were they ruled out?
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Links to related issues, PRs, external docs, or prior art.

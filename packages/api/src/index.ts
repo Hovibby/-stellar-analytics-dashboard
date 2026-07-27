@@ -10,7 +10,6 @@ import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import winston from 'winston';
-import { verify } from 'jsonwebtoken';
 import depthLimit from 'graphql-depth-limit';
 
 import { typeDefs } from './schema/typeDefs';
@@ -20,15 +19,104 @@ import { createLoaders } from './loaders';
 import { formatQueryMetricsPrometheus, getQueryMetrics } from './database/query-monitor';
 import type { HealthCheckResult } from './database/connection';
 import { RealtimePublisher } from './services/realtime-publisher';
-import { 
-  checkSubscriptionRateLimit, 
-  checkEventRateLimit, 
-  cleanupRateLimits 
-} from './pubsub';
+import { checkSubscriptionRateLimit, checkEventRateLimit, cleanupRateLimits } from './pubsub';
 import { authService } from './services/auth';
 import { createTraceContext, extractTraceId, logTrace, getTraceResponseHeader, TraceContext } from './utils/tracer';
 
 dotenv.config();
+
+const MAX_QUERY_COMPLEXITY = 1000;
+
+// List field names that resolve to paginated collections — cost scaled by requested size
+const LIST_FIELD_NAMES = new Set([
+  'transactions',
+  'ledgers',
+  'accounts',
+  'operations',
+  'assets',
+  'edges',
+  'nodes',
+  'networkMetrics',
+  'assetMetrics',
+]);
+
+function timeoutMiddleware(timeoutMs: number, logger: winston.Logger) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const timer = setTimeout(() => {
+      if (!res.headersSent) {
+        logger.error('Request timeout reached', {
+          path: req.path,
+          method: req.method,
+          ip: req.ip,
+          timeoutMs,
+        });
+        res.status(503).json({
+          error: 'Request timeout',
+          message: `The request took too long to process and was timed out after ${timeoutMs}ms`,
+        });
+      }
+    }, timeoutMs);
+
+    res.on('finish', () => clearTimeout(timer));
+    res.on('close', () => clearTimeout(timer));
+
+    next();
+  };
+}
+
+function calculateQueryComplexity(document: any, variables?: Record<string, any>): number {
+  let complexity = 0;
+
+  function scoreSelections(selections: any[], multiplier: number): void {
+    for (const selection of selections) {
+      if (selection.kind !== 'Field') continue;
+
+      const fieldName: string = selection.name.value;
+      if (fieldName.startsWith('__')) continue;
+
+      let fieldMultiplier = multiplier;
+
+      if (LIST_FIELD_NAMES.has(fieldName)) {
+        let listSize = 10;
+
+        const paginationArg = selection.arguments?.find((a: any) => a.name.value === 'pagination');
+        if (paginationArg?.value?.fields) {
+          const firstField = paginationArg.value.fields.find((f: any) => f.name.value === 'first');
+          if (firstField?.value?.kind === 'IntValue') {
+            listSize = parseInt(firstField.value.value, 10);
+          } else if (firstField?.value?.kind === 'Variable' && variables) {
+            const v = variables[firstField.value.name.value];
+            if (typeof v === 'number') listSize = v;
+          }
+        }
+
+        const firstArg = selection.arguments?.find((a: any) => a.name.value === 'first');
+        if (firstArg?.value?.kind === 'IntValue') {
+          listSize = parseInt(firstArg.value.value, 10);
+        } else if (firstArg?.value?.kind === 'Variable' && variables) {
+          const v = variables[firstArg.value.name.value];
+          if (typeof v === 'number') listSize = v;
+        }
+
+        fieldMultiplier = multiplier * Math.max(1, listSize);
+      }
+
+      complexity += fieldMultiplier;
+
+      if (selection.selectionSet?.selections) {
+        scoreSelections(selection.selectionSet.selections, fieldMultiplier);
+      }
+    }
+  }
+
+  for (const def of document.definitions ?? []) {
+    if (def.kind === 'OperationDefinition' && def.selectionSet?.selections) {
+      scoreSelections(def.selectionSet.selections, 1);
+    }
+  }
+
+  return complexity;
+}
 
 class ApiServer {
   private apolloServer!: ApolloServer;
@@ -55,10 +143,7 @@ class ApiServer {
       ),
       transports: [
         new winston.transports.Console({
-          format: winston.format.combine(
-            winston.format.colorize(),
-            winston.format.simple()
-          ),
+          format: winston.format.combine(winston.format.colorize(), winston.format.simple()),
         }),
         new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
         new winston.transports.File({ filename: 'logs/combined.log' }),
@@ -67,43 +152,234 @@ class ApiServer {
   }
 
   private setupMiddleware(): void {
-    this.app.use(helmet({
-      contentSecurityPolicy: false,
-      crossOriginEmbedderPolicy: false,
-    }));
+    this.app.use(
+      helmet({
+        contentSecurityPolicy: false,
+        crossOriginEmbedderPolicy: false,
+      })
+    );
 
-    this.app.use(cors({
-      origin: process.env.CORS_ORIGIN || '*',
-      credentials: true,
-    }));
+    this.app.use(
+      cors({
+        origin: process.env.CORS_ORIGIN || '*',
+        credentials: true,
+      })
+    );
 
     this.app.use(compression());
 
-    const limiter = rateLimit({
-      windowMs: 60 * 1000,
-      max: 1000,
+    // ── Request Timeout ────────────────────────────────────────────────────────────
+    this.app.use(timeoutMiddleware(30000, this.logger));
+
+    // ── HTTP performance tracking middleware ──────────────────────────────────────
+    this.app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+      const start = Date.now();
+      res.on('finish', () => {
+        getPerfAlerting()?.onHttpRequest(req.method, req.path, res.statusCode, Date.now() - start);
+      });
+      next();
+    });
+
+    // ── Rate limiting ─────────────────────────────────────────────────────────
+    //
+    // Three tiers, applied in order. The first limiter that matches a request
+    // key is the one that counts against it.
+    //
+    // Tier 1 – API key clients  (x-api-key header present)
+    //   Lower ceiling than JWT users because API keys are long-lived credentials
+    //   that may be shared or scripted. Keyed on the raw API key value so each
+    //   key has its own independent bucket.
+    //
+    // Tier 2 – Authenticated JWT users  (Bearer token present and valid)
+    //   Higher ceiling than anonymous callers. Keyed on user ID so the limit
+    //   follows the user regardless of IP.
+    //
+    // Tier 3 – Anonymous / IP fallback
+    //   Lowest ceiling. Keyed on IP address.
+
+    const ADMIN_WINDOW_MS = parseInt(process.env.RATE_LIMIT_ADMIN_WINDOW_MS || '60000', 10);
+    const ADMIN_MAX = parseInt(process.env.RATE_LIMIT_ADMIN_MAX || '2000', 10);
+    const API_KEY_WINDOW_MS = parseInt(process.env.RATE_LIMIT_API_KEY_WINDOW_MS || '60000', 10);
+    const API_KEY_MAX = parseInt(process.env.RATE_LIMIT_API_KEY_MAX || '300', 10);
+    const JWT_USER_WINDOW_MS = parseInt(process.env.RATE_LIMIT_JWT_USER_WINDOW_MS || '60000', 10);
+    const JWT_USER_MAX = parseInt(process.env.RATE_LIMIT_JWT_USER_MAX || '1000', 10);
+    const ANON_WINDOW_MS = parseInt(process.env.RATE_LIMIT_ANON_WINDOW_MS || '60000', 10);
+    const ANON_MAX = parseInt(process.env.RATE_LIMIT_ANON_MAX || '100', 10);
+
+    // Tier 1 - Admin user limiter
+    const adminLimiter = rateLimit({
+      windowMs: ADMIN_WINDOW_MS,
+      max: ADMIN_MAX,
       standardHeaders: true,
       legacyHeaders: false,
-      message: { error: 'Too many requests from this IP, please try again later.' },
+      skip: (req) => {
+        const token = authService.extractToken(req.headers.authorization);
+        if (!token) return true;
+        const payload = authService.verifyToken(token);
+        return !payload || payload.role !== 'admin';
+      },
       keyGenerator: (req) => {
         const token = authService.extractToken(req.headers.authorization);
         if (token) {
           const payload = authService.verifyToken(token);
-          if (payload) {
-            return `user:${payload.userId}`;
-          }
+          if (payload) return `admin:${payload.userId}`;
         }
         return req.ip || req.socket.remoteAddress || 'unknown';
       },
+      message: {
+        error: 'Admin rate limit exceeded. Please reduce your request rate.',
+      },
+      handler: (req, res, next, options) => {
+        const token = authService.extractToken(req.headers.authorization);
+        const payload = token ? authService.verifyToken(token) : null;
+        this.logger.warn('Admin rate limit exceeded', {
+          userId: payload?.userId ?? 'unknown',
+          ip: req.ip,
+          limit: options.max,
+          windowMs: options.windowMs,
+        });
+        res.status(429).json(options.message);
+      },
     });
-    this.app.use('/graphql', limiter);
+
+    // Tier 2 – API key limiter
+    const apiKeyLimiter = rateLimit({
+      windowMs: API_KEY_WINDOW_MS,
+      max: API_KEY_MAX,
+      standardHeaders: true,
+      legacyHeaders: false,
+      // Skip requests that are NOT using an API key — let the next limiter handle them
+      skip: (req) => {
+        const apiKey = req.headers['x-api-key'] as string | undefined;
+        return !apiKey || !authService.validateApiKey(apiKey);
+      },
+      keyGenerator: (req) => {
+        // Key on the API key itself so each issued key has its own bucket
+        return `apikey:${req.headers['x-api-key']}`;
+      },
+      message: {
+        error:
+          'API key rate limit exceeded. Please reduce your request rate or contact support to increase your quota.',
+      },
+      handler: (req, res, next, options) => {
+        this.logger.warn('API key rate limit exceeded', {
+          apiKey: (req.headers['x-api-key'] as string)?.substring(0, 12) + '…',
+          ip: req.ip,
+          limit: options.max,
+          windowMs: options.windowMs,
+        });
+        res.status(429).json(options.message);
+      },
+    });
+
+    // Tier 3 – JWT user limiter
+    const jwtUserLimiter = rateLimit({
+      windowMs: JWT_USER_WINDOW_MS,
+      max: JWT_USER_MAX,
+      standardHeaders: true,
+      legacyHeaders: false,
+      // Skip API key requests (already handled above) and anonymous requests
+      skip: (req) => {
+        const apiKey = req.headers['x-api-key'] as string | undefined;
+        if (apiKey && authService.validateApiKey(apiKey)) return true;
+        const token = authService.extractToken(req.headers.authorization);
+        if (!token) return true;
+        return !authService.verifyToken(token);
+      },
+      keyGenerator: (req) => {
+        const token = authService.extractToken(req.headers.authorization);
+        if (token) {
+          const payload = authService.verifyToken(token);
+          if (payload) return `user:${payload.userId}`;
+        }
+        return req.ip || req.socket.remoteAddress || 'unknown';
+      },
+      message: {
+        error: 'Too many requests. Please slow down and try again later.',
+      },
+      handler: (req, res, next, options) => {
+        const token = authService.extractToken(req.headers.authorization);
+        const payload = token ? authService.verifyToken(token) : null;
+        this.logger.warn('JWT user rate limit exceeded', {
+          userId: payload?.userId ?? 'unknown',
+          ip: req.ip,
+          limit: options.max,
+          windowMs: options.windowMs,
+        });
+        res.status(429).json(options.message);
+      },
+    });
+
+    // Tier 4 – Anonymous / IP fallback limiter
+    const anonLimiter = rateLimit({
+      windowMs: ANON_WINDOW_MS,
+      max: ANON_MAX,
+      standardHeaders: true,
+      legacyHeaders: false,
+      // Skip authenticated requests — they are handled by the tiers above
+      skip: (req) => {
+        const apiKey = req.headers['x-api-key'] as string | undefined;
+        if (apiKey && authService.validateApiKey(apiKey)) return true;
+        const token = authService.extractToken(req.headers.authorization);
+        if (token && authService.verifyToken(token)) return true;
+        return false;
+      },
+      keyGenerator: (req) => req.ip || req.socket.remoteAddress || 'unknown',
+      message: {
+        error: 'Too many requests from this IP, please try again later.',
+      },
+      handler: (req, res, next, options) => {
+        this.logger.warn('Anonymous rate limit exceeded', {
+          ip: req.ip,
+          limit: options.max,
+          windowMs: options.windowMs,
+        });
+        res.status(429).json(options.message);
+      },
+    });
+
+    // Apply all four limiters to the GraphQL endpoint
+    this.app.use('/graphql', adminLimiter, apiKeyLimiter, jwtUserLimiter, anonLimiter);
+
+    this.app.get('/health/live', (_req, res) => {
+      res.status(200).json({ status: 'alive', timestamp: new Date().toISOString() });
+    });
+
+    this.app.get('/health/ready', async (_req, res) => {
+      try {
+        const health: HealthCheckResult = await db.healthCheck();
+        const pgDown = health.postgres.status === 'error';
+        const redisDown = health.redis.status === 'error';
+
+        if (pgDown || redisDown) {
+          return res.status(503).json({
+            status: 'not_ready',
+            postgres: health.postgres.status,
+            redis: health.redis.status,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        res.status(200).json({
+          status: 'ready',
+          postgres: health.postgres.status,
+          redis: health.redis.status,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error: any) {
+        res.status(503).json({
+          status: 'not_ready',
+          timestamp: new Date().toISOString(),
+          error: error?.message ?? 'Readiness check failed',
+        });
+      }
+    });
 
     this.app.get('/health', async (_req, res) => {
       try {
         const health: HealthCheckResult = await db.healthCheck();
-        const statusCode = health.status === 'unhealthy' ? 503
-          : health.status === 'degraded' ? 200
-          : 200;
+        const statusCode =
+          health.status === 'unhealthy' ? 503 : health.status === 'degraded' ? 200 : 200;
         res.status(statusCode).json(health);
       } catch (error: any) {
         res.status(503).json({
@@ -128,6 +404,110 @@ class ApiServer {
 
     this.app.get('/metrics/queries', (_req, res) => {
       res.json(getQueryMetrics());
+    });
+
+    // Issue #216 – Circuit breaker health endpoint
+    this.app.get('/health/circuit-breaker', (_req, res) => {
+      const cb = getDbCircuitBreaker(this.logger);
+      res.json({
+        db: cb.getStats(),
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    // Issue #214 – Bulk data export REST endpoint
+    this.app.get('/api/export/:entityType', async (req, res) => {
+      try {
+        const { entityType } = req.params;
+        const format = (req.query.format as string) || 'json';
+        const startTime = req.query.startTime as string | undefined;
+        const endTime = req.query.endTime as string | undefined;
+
+        if (!['transactions', 'ledgers', 'operations'].includes(entityType)) {
+          res.status(400).json({ error: 'Invalid entity type. Must be transactions, ledgers, or operations.' });
+          return;
+        }
+
+        if (!['json', 'csv'].includes(format)) {
+          res.status(400).json({ error: 'Invalid format. Must be json or csv.' });
+          return;
+        }
+
+        let whereClause = 'WHERE 1=1';
+        const params: unknown[] = [];
+        let paramIndex = 1;
+
+        if (startTime) {
+          whereClause += ` AND created_at >= $${paramIndex++}`;
+          params.push(startTime);
+        }
+        if (endTime) {
+          whereClause += ` AND created_at <= $${paramIndex++}`;
+          params.push(endTime);
+        }
+
+        let query = '';
+        switch (entityType) {
+          case 'transactions':
+            query = `
+              SELECT hash, ledger_sequence, successful, fee_charged, operation_count,
+                     source_account, created_at, memo_type, memo
+              FROM transactions ${whereClause}
+              ORDER BY created_at DESC
+              LIMIT 10000
+            `;
+            break;
+          case 'ledgers':
+            query = `
+              SELECT sequence, successful_transaction_count, failed_transaction_count,
+                     operation_count, closed_at, base_fee_in_stroops, protocol_version
+              FROM ledgers ${whereClause}
+              ORDER BY sequence DESC
+              LIMIT 10000
+            `;
+            break;
+          case 'operations':
+            query = `
+              SELECT id, transaction_hash, type, source_account, ledger_sequence,
+                     operation_index, details, created_at
+              FROM operations ${whereClause}
+              ORDER BY created_at DESC
+              LIMIT 10000
+            `;
+            break;
+        }
+
+        const rows = await db.query(query, params);
+
+        if (format === 'csv') {
+          res.setHeader('Content-Type', 'text/csv');
+          res.setHeader('Content-Disposition', `attachment; filename="${entityType}_export.csv"`);
+          if (rows.length === 0) {
+            res.send('');
+            return;
+          }
+          const headers = Object.keys(rows[0]);
+          const csvLines = [headers.join(',')];
+          for (const row of rows) {
+            const values = headers.map((h) => {
+              const val = row[h];
+              const str = val === null || val === undefined ? '' : String(val);
+              return str.includes(',') || str.includes('"') || str.includes('\n')
+                ? `"${str.replace(/"/g, '""')}"`
+                : str;
+            });
+            csvLines.push(values.join(','));
+          }
+          res.send(csvLines.join('\n'));
+        } else {
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Content-Disposition', `attachment; filename="${entityType}_export.json"`);
+          res.json(rows);
+        }
+      } catch (error: any) {
+        this.logger.error('Export endpoint error', { error: error?.message });
+        res.status(500).json({ error: 'Export failed', message: error?.message });
+      }
     });
   }
 
@@ -166,6 +546,13 @@ class ApiServer {
                 traceId: trace?.requestId,
                 variables: ctx.request.variables,
               });
+
+              if (complexity > MAX_QUERY_COMPLEXITY) {
+                throw new Error(
+                  `Query complexity ${complexity} exceeds the maximum allowed complexity of ${MAX_QUERY_COMPLEXITY}. ` +
+                    `Reduce the number of requested fields or lower the pagination limit.`
+                );
+              }
             },
             didEncounterErrors(ctx: any) {
               logger.error('GraphQL operation errors', {
@@ -202,6 +589,9 @@ class ApiServer {
     this.apolloServer = new ApolloServer({
       typeDefs,
       resolvers,
+      schemaDirectives: {
+        auth: AuthDirective,
+      },
       context: ({ req }) => {
         let user = null;
         const token = authService.extractToken(req.headers.authorization);
@@ -241,10 +631,14 @@ class ApiServer {
         };
       },
       introspection: !isProduction,
-      validationRules: [
-        depthLimit(10) as any,
-      ],
+      validationRules: [depthLimit(10) as any],
       plugins,
+      // Issue #217 – Enable automatic persisted queries to reduce payload size
+      // Clients can send a hash of the query instead of the full query text.
+      // Falls back to full query if hash is not found in the APQ cache.
+      persistedQueries: {
+        cache: new Map<string, string>(),
+      },
     });
   }
 
@@ -256,6 +650,10 @@ class ApiServer {
       await db.connect();
       this.logger.info('Database connections established');
 
+      // Initialise performance alerting (reads env vars automatically)
+      const perfAlerting = initPerfAlerting(this.logger);
+      perfAlerting.startHealthPolling(() => db.healthCheck());
+
       await this.apolloServer.start();
       this.logger.info('Apollo Server started');
 
@@ -266,6 +664,7 @@ class ApiServer {
       });
 
       this.httpServer = createServer(this.app);
+      this.httpServer.timeout = 30000; // 30s default timeout
       this.setupWebSocketServer();
       await this.realtimePublisher.start();
 
@@ -344,12 +743,9 @@ class ApiServer {
   }
 
   private validateEnvironment(): void {
-    const requiredEnvVars = [
-      'DATABASE_URL',
-      'REDIS_URL',
-    ];
+    const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL'];
 
-    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+    const missingVars = requiredEnvVars.filter((varName) => !process.env[varName]);
 
     if (missingVars.length > 0) {
       throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
@@ -360,6 +756,7 @@ class ApiServer {
     this.logger.info('Shutting down server...');
 
     try {
+      getPerfAlerting()?.stopHealthPolling();
       this.realtimePublisher.stop();
       await this.apolloServer.stop();
       await db.disconnect();

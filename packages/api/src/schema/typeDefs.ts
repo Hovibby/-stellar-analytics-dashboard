@@ -466,7 +466,8 @@ export const typeDefs = gql`
       accountId: String!
       "Time range to filter by"
       timeRange: TimeRangeInput
-    ): [AccountMetrics!]!
+      orderBy: [OrderByInput!]
+    ): AccountMetricsConnection!
 
     "Retrieve cohort analysis grouping accounts by activity patterns over the last 30 days"
     accountCohorts(
@@ -478,6 +479,14 @@ export const typeDefs = gql`
 
     "Retrieve aggregated network statistics summary"
     stats: NetworkStats!
+
+    # Bulk data export (REST-style query for CSV/JSON export)
+    exportData(
+      entityType: String!
+      filter: TransactionFilterInput
+      timeRange: TimeRangeInput
+      format: String = "json"
+    ): String
   }
 
   "Aggregated network statistics snapshot"

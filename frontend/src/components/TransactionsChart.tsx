@@ -5,8 +5,11 @@
  * Handles loading, error, and empty states gracefully.
  * Falls back to a "no data" message when the API returns an empty array.
  */
-import { useQuery } from "@apollo/client";
-import { NETWORK_METRICS_QUERY } from "../graphql/queries";
+import { useQuery } from '@apollo/client';
+import { NETWORK_METRICS_QUERY } from '../graphql/queries';
+import { ExportControls } from './ExportControls';
+import { ChartSkeleton } from './Skeleton';
+import { useTranslation } from 'react-i18next';
 
 interface MetricPoint {
   timestamp: string;
@@ -18,10 +21,11 @@ interface MetricPoint {
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 export function TransactionsChart() {
+  const { t, i18n } = useTranslation();
   const now = new Date();
   const startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
@@ -29,7 +33,7 @@ export function TransactionsChart() {
     variables: { timeRange: { startTime, endTime: now.toISOString() } },
     pollInterval: 30_000,
     notifyOnNetworkStatusChange: true,
-    errorPolicy: "all",
+    errorPolicy: 'all',
   });
 
   const metrics: MetricPoint[] = (data?.networkMetrics ?? []).map((m: any) => ({
@@ -44,19 +48,19 @@ export function TransactionsChart() {
   if (loading && metrics.length === 0) {
     return (
       <section className="card" aria-busy="true" aria-label="Loading transaction chart">
-        <h3 style={{ margin: "0 0 12px", fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6b7280" }}>
-          Transaction Volume (24h)
-        </h3>
-        <div
+        <h3
           style={{
-            height: "120px",
-            background: "linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%)",
-            backgroundSize: "200% 100%",
-            animation: "shimmer 1.5s infinite",
-            borderRadius: "8px",
+            margin: '0 0 12px',
+            fontSize: '12px',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            color: 'var(--color-text-secondary)',
           }}
-        />
-        <style>{`@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
+        >
+          {t('chart.transactionVolume24h')}
+        </h3>
+        <ChartSkeleton height="120px" />
       </section>
     );
   }
@@ -65,24 +69,34 @@ export function TransactionsChart() {
   if (error && metrics.length === 0) {
     return (
       <section className="card" role="alert">
-        <h3 style={{ margin: "0 0 8px", fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6b7280" }}>
+        <h3
+          style={{
+            margin: '0 0 8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            color: 'var(--color-text-secondary)',
+          }}
+        >
           Transaction Volume (24h)
         </h3>
-        <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#dc2626" }}>
+        <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--color-error)' }}>
           {error.message}
         </p>
         <button
           onClick={() => refetch()}
           style={{
-            background: "#f3f4f6",
-            border: "1px solid #d1d5db",
-            borderRadius: "6px",
-            padding: "6px 12px",
-            cursor: "pointer",
-            fontSize: "13px",
+            background: 'var(--color-input-disabled)',
+            border: '1px solid var(--color-border)',
+            borderRadius: '6px',
+            padding: '6px 12px',
+            cursor: 'pointer',
+            fontSize: '13px',
+            color: 'var(--color-text-primary)',
           }}
         >
-          Retry
+          {t('app.retry')}
         </button>
       </section>
     );
@@ -92,11 +106,20 @@ export function TransactionsChart() {
   if (metrics.length === 0) {
     return (
       <section className="card">
-        <h3 style={{ margin: "0 0 8px", fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6b7280" }}>
-          Transaction Volume (24h)
+        <h3
+          style={{
+            margin: '0 0 8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            color: 'var(--color-text-secondary)',
+          }}
+        >
+          {t('chart.transactionVolume24h')}
         </h3>
-        <p style={{ margin: 0, fontSize: "13px", color: "#9ca3af" }}>
-          No data available yet. The indexer may still be syncing.
+        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-tertiary)' }}>
+          {t('chart.noData')}
         </p>
       </section>
     );
@@ -107,30 +130,55 @@ export function TransactionsChart() {
 
   return (
     <section className="card">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-        <h3 style={{ margin: 0, fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6b7280" }}>
-          Transaction Volume (24h)
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '16px',
+          flexWrap: 'wrap',
+          gap: '12px',
+        }}
+      >
+        <h3
+          style={{
+            margin: 0,
+            fontSize: '12px',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            color: 'var(--color-text-secondary)',
+          }}
+        >
+          {t('chart.transactionVolume24h')}
         </h3>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          {loading && (
-            <span style={{ fontSize: "11px", color: "#9ca3af" }}>↻ Updating…</span>
-          )}
-          <button
-            onClick={() => refetch()}
-            disabled={loading}
-            aria-label="Refresh chart"
-            style={{
-              background: "transparent",
-              border: "1px solid #d1d5db",
-              borderRadius: "6px",
-              padding: "4px 8px",
-              cursor: loading ? "not-allowed" : "pointer",
-              fontSize: "12px",
-              color: "#6b7280",
-            }}
-          >
-            ↻
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          {/* Export controls for transaction metrics */}
+          <ExportControls data={metrics} baseFilename="transaction-metrics" disabled={loading} />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {loading && (
+              <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+                ↻ {t('chart.updating')}
+              </span>
+            )}
+            <button
+              onClick={() => refetch()}
+              disabled={loading}
+              aria-label={t('chart.refreshChart')}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--color-border)',
+                borderRadius: '6px',
+                padding: '4px 8px',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                fontSize: '12px',
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              ↻
+            </button>
+          </div>
         </div>
       </div>
 
@@ -139,11 +187,11 @@ export function TransactionsChart() {
         role="img"
         aria-label={`Transaction volume chart with ${metrics.length} data points`}
         style={{
-          display: "flex",
-          alignItems: "flex-end",
-          gap: "2px",
-          height: "80px",
-          padding: "0 4px",
+          display: 'flex',
+          alignItems: 'flex-end',
+          gap: '2px',
+          height: '80px',
+          padding: '0 4px',
         }}
       >
         {metrics.map((m, i) => {
@@ -155,10 +203,15 @@ export function TransactionsChart() {
               style={{
                 flex: 1,
                 height: `${Math.max(heightPct, 2)}%`,
-                background: m.successRate >= 99 ? "#3b82f6" : m.successRate >= 95 ? "#f59e0b" : "#ef4444",
-                borderRadius: "2px 2px 0 0",
-                transition: "height 0.3s ease",
-                minWidth: "2px",
+                background:
+                  m.successRate >= 99
+                    ? 'var(--color-primary)'
+                    : m.successRate >= 95
+                      ? 'var(--color-warning)'
+                      : 'var(--color-error)',
+                borderRadius: '2px 2px 0 0',
+                transition: 'height 0.3s ease',
+                minWidth: '2px',
               }}
             />
           );
@@ -166,39 +219,53 @@ export function TransactionsChart() {
       </div>
 
       {/* X-axis labels */}
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px" }}>
-        <span style={{ fontSize: "10px", color: "#9ca3af" }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+        <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary)' }}>
           {formatTime(metrics[0].timestamp)}
         </span>
-        <span style={{ fontSize: "10px", color: "#9ca3af" }}>
+        <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary)' }}>
           {formatTime(metrics[metrics.length - 1].timestamp)}
         </span>
       </div>
 
       {/* Summary row */}
-      <div style={{ display: "flex", gap: "16px", marginTop: "12px", paddingTop: "12px", borderTop: "1px solid #e5e7eb" }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: '16px',
+          marginTop: '12px',
+          paddingTop: '12px',
+          borderTop: '1px solid var(--color-border)',
+        }}
+      >
         <div>
-          <div style={{ fontSize: "11px", color: "#9ca3af" }}>Total txs</div>
-          <div style={{ fontSize: "16px", fontWeight: 700 }}>
-            {metrics.reduce((s, m) => s + m.transactionCount, 0).toLocaleString()}
+          <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+            {t('chart.totalTxs')}
+          </div>
+          <div style={{ fontSize: '16px', fontWeight: 700 }}>
+            {metrics.reduce((s, m) => s + m.transactionCount, 0).toLocaleString(i18n.language)}
           </div>
         </div>
         <div>
-          <div style={{ fontSize: "11px", color: "#9ca3af" }}>Avg fee</div>
-          <div style={{ fontSize: "16px", fontWeight: 700 }}>
+          <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+            {t('chart.avgFee')}
+          </div>
+          <div style={{ fontSize: '16px', fontWeight: 700 }}>
             {(metrics.reduce((s, m) => s + m.averageFee, 0) / metrics.length).toFixed(0)} str
           </div>
         </div>
         <div>
-          <div style={{ fontSize: "11px", color: "#9ca3af" }}>Success rate</div>
-          <div style={{ fontSize: "16px", fontWeight: 700 }}>
+          <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+            {t('chart.successRate')}
+          </div>
+          <div style={{ fontSize: '16px', fontWeight: 700 }}>
             {(metrics.reduce((s, m) => s + m.successRate, 0) / metrics.length).toFixed(1)}%
           </div>
         </div>
       </div>
 
-      <p style={{ margin: "8px 0 0", fontSize: "10px", color: "#d1d5db" }}>
-        {metrics.length} data points · auto-refreshes every 30s
+      <p style={{ margin: '8px 0 0', fontSize: '10px', color: 'var(--color-text-disabled)' }}>
+        {metrics.length} data points · {t('chart.autoRefresh')}
       </p>
     </section>
   );
