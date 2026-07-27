@@ -89,6 +89,8 @@ export const typeDefs = /* GraphQL */ `
     # Analytics
     accountStats(address: String!): AccountStats!
     networkStats: NetworkStats!
+    stats: Stats!
+    networkMetrics(timeRange: TimeRangeInput): [NetworkMetrics!]!
     assetVolume(assetCode: String!, timeframe: String!): AssetVolume!
     topAccounts(limit: Int): [TopAccount!]!
     

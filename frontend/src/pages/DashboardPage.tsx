@@ -7,6 +7,7 @@
  * Includes data freshness indicators (issue #242).
  */
 import { TransactionsChart } from '../components/TransactionsChart';
+import { NetworkComparisonChart } from '../components/NetworkComparisonChart';
 import { ExportControls } from '../components/ExportControls';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
@@ -279,6 +280,10 @@ export function DashboardPage() {
 
           <div className="grid" style={{ marginTop: '24px' }}>
             <TransactionsChart onDrillDown={handleChartDrillDown} />
+          </div>
+
+          <div className="grid" style={{ marginTop: '24px' }}>
+            <NetworkComparisonChart />
           </div>
         </>
       )}
