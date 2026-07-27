@@ -166,6 +166,35 @@ class IndexerApp {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ message: 'Circuit breaker reset to CLOSED', timestamp: new Date().toISOString() }));
 
+      // ── GET /progress (ingestion progress snapshot) ────────────────────
+      } else if (req.url === '/progress' && req.method === 'GET') {
+        try {
+          const snapshot = this.indexerService.getProgressSnapshot();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            isRunning: true,
+            elapsedMs: this.indexerService.getIngestionElapsedMs(),
+            ...snapshot,
+          }));
+        } catch (error: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: error.message }));
+        }
+
+      // ── GET /progress/history (progress trend data) ─────────────────────
+      } else if (req.url === '/progress/history' && req.method === 'GET') {
+        try {
+          const history = this.indexerService.getProgressHistory();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            history,
+            count: history.length,
+          }));
+        } catch (error: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: error.message }));
+        }
+
       // ── POST /backfill (manual backfill from sequence) ───────────────────
       } else if (req.url === '/backfill' && req.method === 'POST') {
         try {
@@ -206,6 +235,69 @@ class IndexerApp {
 
               res.writeHead(202, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ message: 'Backfill started', startSequence, endSequence, timestamp: new Date().toISOString() }));
+            } catch (err: any) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'invalid JSON payload', detail: err.message }));
+            }
+          });
+        } catch (err: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+
+      // ── GET /gap-report (detect missing ledger gaps) ────────────────────
+      } else if (req.url === '/gap-report' && req.method === 'GET') {
+        try {
+          const report = await this.indexerService.detectGaps();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            message: report.gaps.length === 0
+              ? 'No gaps detected – all ledgers accounted for.'
+              : `Found ${report.gaps.length} gap(s) totaling ${report.totalMissing} missing ledgers.`,
+            ...report,
+          }));
+        } catch (error: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: error.message }));
+        }
+
+      // ── POST /recover-gaps (backfill missing ledger ranges) ─────────────
+      } else if (req.url === '/recover-gaps' && req.method === 'POST') {
+        try {
+          const adminToken = process.env.BACKFILL_ADMIN_TOKEN;
+
+          let body = '';
+          req.on('data', (chunk: any) => { body += chunk; });
+          req.on('end', async () => {
+            try {
+              const payload = body ? JSON.parse(body) : {};
+
+              // If an admin token is configured, require it
+              if (adminToken) {
+                const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+                const provided = authHeader && String(authHeader).startsWith('Bearer ')
+                  ? String(authHeader).slice(7)
+                  : payload.token || payload.adminToken;
+
+                if (!provided || provided !== adminToken) {
+                  res.writeHead(401, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ error: 'unauthorized' }));
+                  return;
+                }
+              }
+
+              // Fire-and-forget: recover gaps but respond immediately
+              this.indexerService.recoverMissingLedgers().then((result) => {
+                console.log('[indexer] gap recovery completed:', result);
+              }).catch((err: any) => {
+                console.error('[indexer] gap recovery failed:', err);
+              });
+
+              res.writeHead(202, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                message: 'Gap recovery started. Check /gap-report for progress.',
+                timestamp: new Date().toISOString(),
+              }));
             } catch (err: any) {
               res.writeHead(400, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'invalid JSON payload', detail: err.message }));

@@ -24,6 +24,14 @@ import {
 import { writeIngestedData } from "./loader.js";
 import { backfillLogger } from "./logger.js";
 import type { IndexerConfig } from "./config.js";
+import {
+  createCheckpoint,
+  saveCheckpoint,
+  markCheckpointCompleted,
+  markCheckpointFailed,
+  markCheckpointCancelled,
+  loadCheckpoint,
+} from "./checkpoint.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -224,11 +232,46 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
 
+  // ── Checkpoint setup ──────────────────────────────────────────────────────
+  const jobId = `backfill:${network}:${startSequence}-${endSequence}`;
+  let resumeFromSequence = startSequence;
+  let processed = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  if (pool) {
+    // Try to load an existing in-progress checkpoint
+    const existing = await loadCheckpoint(pool, jobId);
+    if (
+      existing &&
+      existing.status === 'in_progress' &&
+      existing.lastProcessedSequence !== null
+    ) {
+      resumeFromSequence = existing.lastProcessedSequence + 1;
+      processed = existing.processedCount;
+      skipped = existing.skippedCount;
+      failed = existing.failedCount;
+      backfillLogger.info(
+        {
+          jobId,
+          resumeFrom: resumeFromSequence,
+          processed: existing.processedCount,
+          skipped: existing.skippedCount,
+          failed: existing.failedCount,
+        },
+        "Resuming backfill from checkpoint"
+      );
+    } else {
+      await createCheckpoint(pool, jobId, network, startSequence, endSequence);
+    }
+  }
+
   backfillLogger.info(
     {
       network,
       startSequence,
       endSequence,
+      resumeFrom: resumeFromSequence,
       total,
       concurrency: config.backfillConcurrency,
       batchSize: config.backfillBatchSize,
@@ -236,14 +279,11 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
     "Starting backfill"
   );
 
-  let processed = 0;
-  let skipped = 0;
-  let failed = 0;
   let lastFailedSequence: number | null = null;
 
-  // Build sequence list
+  // Build sequence list from resume point
   const sequences: number[] = [];
-  for (let seq = startSequence; seq <= endSequence; seq++) {
+  for (let seq = resumeFromSequence; seq <= endSequence; seq++) {
     sequences.push(seq);
   }
 
@@ -253,6 +293,15 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
   for (let batchStart = 0; batchStart < sequences.length; batchStart += batchSize) {
     if (signal?.aborted) {
       backfillLogger.warn({ processed, skipped, failed }, "Backfill cancelled by signal");
+      if (pool) {
+        await markCheckpointCancelled(pool, jobId, {
+          lastProcessedSequence:
+            batchStart > 0 ? sequences[batchStart - 1] : resumeFromSequence - 1,
+          processedCount: processed,
+          skippedCount: skipped,
+          failedCount: failed,
+        });
+      }
       break;
     }
 
@@ -282,6 +331,17 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
         );
       }
     });
+
+    // ── Persist checkpoint after each batch ──────────────────────────────────
+    if (pool) {
+      const batchLastSeq = batch[batch.length - 1];
+      await saveCheckpoint(pool, jobId, {
+        lastProcessedSequence: batchLastSeq,
+        processedCount: processed,
+        skippedCount: skipped,
+        failedCount: failed,
+      });
+    }
 
     // Progress tracking
     const done = processed + skipped + failed;
@@ -316,6 +376,32 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
   }
 
   const durationMs = Date.now() - startMs;
+
+  // ── Mark final status ─────────────────────────────────────────────────────
+  if (pool) {
+    if (lastFailedSequence !== null) {
+      await markCheckpointFailed(
+        pool,
+        jobId,
+        `Backfill completed with ${failed} failed ledger(s). Last failed: ${lastFailedSequence}`,
+        {
+          lastProcessedSequence: sequences.length > 0
+            ? sequences[sequences.length - 1]
+            : resumeFromSequence - 1,
+          processedCount: processed,
+          skippedCount: skipped,
+          failedCount: failed,
+        },
+      );
+    } else {
+      await markCheckpointCompleted(pool, jobId, {
+        lastProcessedSequence: endSequence,
+        processedCount: processed,
+        skippedCount: skipped,
+        failedCount: failed,
+      });
+    }
+  }
 
   backfillLogger.info(
     { processed, skipped, failed, durationMs, total },
