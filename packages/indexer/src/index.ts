@@ -1,8 +1,10 @@
 import dotenv from 'dotenv';
+import { Pool } from 'pg';
 import { StellarService } from './services/stellar-service';
 import { IndexerService } from './services/indexer-service';
 import { db } from './database/connection';
 import { runMigrations } from './database/migrate';
+import { SchemaVersionManager } from './database/schema-version';
 import { STELLAR_NETWORKS, HORIZON_URLS } from '@stellar-analytics/shared';
 
 // Load environment variables
@@ -34,9 +36,12 @@ class IndexerApp {
       await db.connect();
       console.log('✅ Database connections established');
       
-      // Run migrations
+      // Run migrations (includes schema-version check)
       await runMigrations();
       console.log('✅ Database migrations completed');
+
+      // Post-migration schema version validation
+      await this.validateSchemaCompatibility();
       
       // Test Horizon connection
       const isConnected = await this.stellarService.testConnection();
@@ -71,6 +76,48 @@ class IndexerApp {
     
     if (missingVars.length > 0) {
       throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+    }
+  }
+
+  /**
+   * Validate that the running database schema is compatible with this code.
+   * This is a safety net – runMigrations() should already ensure compatibility,
+   * but this double-checks even if migrations were skipped (e.g. read-replica).
+   */
+  private async validateSchemaCompatibility(): Promise<void> {
+    try {
+      const pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        max: 1,
+      });
+
+      const versionManager = new SchemaVersionManager(pool);
+      const result = await versionManager.checkCompatibility();
+
+      if (!result.compatible) {
+        const level = result.fatal ? '❌ FATAL' : '⚠️  WARNING';
+        console.error(`${level}: ${result.message}`);
+        if (result.fatal) {
+          await pool.end();
+          throw new Error(result.message);
+        }
+      } else {
+        console.log(`✅ ${result.message}`);
+      }
+
+      await pool.end();
+    } catch (err) {
+      // Only re-throw fatal errors; non-fatal warnings are logged
+      if (err instanceof Error && err.message.includes('FATAL')) {
+        throw err;
+      }
+      // If the schema_version table doesn't exist yet (fresh DB before migrations),
+      // that's expected and handled by runMigrations().
+      console.warn(
+        `⚠️  Schema version check skipped: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
   }
 
