@@ -1,6 +1,14 @@
 import { gql } from 'apollo-server-express';
 
 export const typeDefs = gql`
+  directive @auth(requires: Role = ADMIN) on OBJECT | FIELD_DEFINITION
+
+  enum Role {
+    ADMIN
+    USER
+    VIEWER
+  }
+
   scalar DateTime
   scalar JSON
 
@@ -387,8 +395,8 @@ export const typeDefs = gql`
   type Mutation {
     register(input: RegisterInput!): AuthPayload!
     login(input: LoginInput!): AuthPayload!
-    generateApiKey: ApiKeyPayload!
-    revokeApiKey: Boolean!
+    generateApiKey: ApiKeyPayload! @auth(requires: ADMIN)
+    revokeApiKey: Boolean! @auth(requires: ADMIN)
   }
 
   # ── Subscriptions ──────────────────────────────────────────────────────────
