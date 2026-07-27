@@ -701,10 +701,43 @@ export class IndexerService {
       case 'manage_sell_offer':
         return {
           ...base,
-          selling_asset: operation.selling_asset,
-          buying_asset: operation.buying_asset,
+          selling_asset_type: operation.selling_asset_type,
+          selling_asset_code: operation.selling_asset_code,
+          selling_asset_issuer: operation.selling_asset_issuer,
+          buying_asset_type: operation.buying_asset_type,
+          buying_asset_code: operation.buying_asset_code,
+          buying_asset_issuer: operation.buying_asset_issuer,
           amount: operation.amount,
           price: operation.price,
+          price_r: operation.price_r,
+          offer_id: operation.offer_id,
+        };
+      case 'manage_buy_offer':
+        return {
+          ...base,
+          selling_asset_type: operation.selling_asset_type,
+          selling_asset_code: operation.selling_asset_code,
+          selling_asset_issuer: operation.selling_asset_issuer,
+          buying_asset_type: operation.buying_asset_type,
+          buying_asset_code: operation.buying_asset_code,
+          buying_asset_issuer: operation.buying_asset_issuer,
+          amount: operation.amount,
+          price: operation.price,
+          price_r: operation.price_r,
+          offer_id: operation.offer_id,
+        };
+      case 'create_passive_sell_offer':
+        return {
+          ...base,
+          selling_asset_type: operation.selling_asset_type,
+          selling_asset_code: operation.selling_asset_code,
+          selling_asset_issuer: operation.selling_asset_issuer,
+          buying_asset_type: operation.buying_asset_type,
+          buying_asset_code: operation.buying_asset_code,
+          buying_asset_issuer: operation.buying_asset_issuer,
+          amount: operation.amount,
+          price: operation.price,
+          price_r: operation.price_r,
           offer_id: operation.offer_id,
         };
       case 'path_payment_strict_receive':
@@ -718,6 +751,23 @@ export class IndexerService {
           destination_asset: operation.destination_asset,
           destination_min: operation.destination_min,
           path: operation.path,
+          asset_type: operation.asset_type,
+          asset_code: operation.asset_code,
+          asset_issuer: operation.asset_issuer,
+        };
+      case 'path_payment_strict_send':
+        return {
+          ...base,
+          from: operation.from,
+          to: operation.to,
+          amount: operation.amount,
+          source_amount: operation.source_amount,
+          destination_min: operation.destination_min,
+          destination_asset: operation.destination_asset,
+          path: operation.path,
+          asset_type: operation.asset_type,
+          asset_code: operation.asset_code,
+          asset_issuer: operation.asset_issuer,
         };
       case 'change_trust':
         return {
@@ -728,6 +778,133 @@ export class IndexerService {
           trustor: operation.trustor,
           trustee: operation.trustee,
           limit: operation.limit,
+        };
+      case 'allow_trust':
+        return {
+          ...base,
+          trustor: operation.trustor,
+          trustee: operation.trustee,
+          asset_type: operation.asset_type,
+          asset_code: operation.asset_code,
+          authorize: operation.authorize,
+          authorize_to_maintain_liabilities: operation.authorize_to_maintain_liabilities,
+        };
+      case 'set_options':
+        return {
+          ...base,
+          signer_key: operation.signer_key,
+          signer_weight: operation.signer_weight,
+          master_key_weight: operation.master_key_weight,
+          low_threshold: operation.low_threshold,
+          med_threshold: operation.med_threshold,
+          high_threshold: operation.high_threshold,
+          home_domain: operation.home_domain,
+          set_flags: operation.set_flags,
+          set_flags_s: operation.set_flags_s,
+          clear_flags: operation.clear_flags,
+          clear_flags_s: operation.clear_flags_s,
+        };
+      case 'account_merge':
+        return {
+          ...base,
+          account: operation.account,
+          into: operation.into,
+        };
+      case 'inflation':
+        return {
+          ...base,
+        };
+      case 'manage_data':
+        return {
+          ...base,
+          name: operation.name,
+          value: operation.value,
+        };
+      case 'bump_sequence':
+        return {
+          ...base,
+          bump_to: operation.bump_to,
+        };
+      case 'claim_claimable_balance':
+        return {
+          ...base,
+          balance_id: operation.balance_id,
+          claimant: operation.claimant,
+        };
+      case 'begin_sponsoring_future_reserves':
+        return {
+          ...base,
+          sponsored_id: operation.sponsored_id,
+        };
+      case 'end_sponsoring_future_reserves':
+        return {
+          ...base,
+          begin_sponsor: operation.begin_sponsor,
+        };
+      case 'revoke_sponsorship':
+        return {
+          ...base,
+          account_id: operation.account_id,
+          claimable_balance_id: operation.claimable_balance_id,
+          liquidity_pool_id: operation.liquidity_pool_id,
+          offer_id: operation.offer_id,
+          trustline_account: operation.trustline_account,
+          trustline_asset: operation.trustline_asset,
+          signer_account: operation.signer_account,
+          signer_key: operation.signer_key,
+        };
+      case 'clawback':
+        return {
+          ...base,
+          from: operation.from,
+          amount: operation.amount,
+          asset_type: operation.asset_type,
+          asset_code: operation.asset_code,
+          asset_issuer: operation.asset_issuer,
+        };
+      case 'clawback_claimable_balance':
+        return {
+          ...base,
+          balance_id: operation.balance_id,
+        };
+      case 'set_trust_line_flags':
+        return {
+          ...base,
+          trustor: operation.trustor,
+          asset_type: operation.asset_type,
+          asset_code: operation.asset_code,
+          asset_issuer: operation.asset_issuer,
+          set_flags: operation.set_flags,
+          set_flags_s: operation.set_flags_s,
+          clear_flags: operation.clear_flags,
+          clear_flags_s: operation.clear_flags_s,
+        };
+      case 'liquidity_pool_deposit':
+        return {
+          ...base,
+          liquidity_pool_id: operation.liquidity_pool_id,
+          max_amount_a: operation.max_amount_a,
+          max_amount_b: operation.max_amount_b,
+          min_price: operation.min_price,
+          max_price: operation.max_price,
+          shares_received: operation.shares_received,
+          price_r: operation.price_r,
+        };
+      case 'liquidity_pool_withdraw':
+        return {
+          ...base,
+          liquidity_pool_id: operation.liquidity_pool_id,
+          shares: operation.shares,
+          min_amount_a: operation.min_amount_a,
+          min_amount_b: operation.min_amount_b,
+        };
+      case 'invoke_host_function':
+        return {
+          ...base,
+          function: operation.function,
+          parameters: operation.parameters,
+          address: operation.address,
+          salt: operation.salt,
         };
       default:
         return base;
