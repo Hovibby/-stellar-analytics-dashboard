@@ -108,4 +108,17 @@ export const typeDefs = /* GraphQL */ `
     status: String!
     timestamp: String!
   }
+
+  # Issue #210: real-time subscriptions, backed by Postgres LISTEN/NOTIFY
+  # (indexer emits pg_notify('ledger_events', ...) after each committed
+  # ledger write — see indexer/src/loader.ts and api/src/pg-listener.ts).
+  type LedgerAddedEvent {
+    sequence: Int!
+    transactionCount: Int!
+    closeTime: String!
+  }
+
+  type Subscription {
+    ledgerAdded: LedgerAddedEvent!
+  }
 `;

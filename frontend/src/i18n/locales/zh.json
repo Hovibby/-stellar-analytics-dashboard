@@ -55,7 +55,9 @@
     "createdAt": "创建时间",
     "noData": "暂无交易可用。索引器可能仍在同步中。",
     "success": "成功",
-    "failed": "失败"
+    "failed": "失败",
+    "filteredByDrillDown": "显示 {{from}} 至 {{to}} 的交易",
+    "clearFilter": "清除筛选"
   },
   "pagination": {
     "itemsPerPage": "每页项目数",

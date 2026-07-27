@@ -55,7 +55,9 @@
     "createdAt": "Créé À",
     "noData": "Aucune transaction disponible pour le moment. L'indexeur est peut-être encore en synchronisation.",
     "success": "Succès",
-    "failed": "Échec"
+    "failed": "Échec",
+    "filteredByDrillDown": "Transactions affichées du {{from}} au {{to}}",
+    "clearFilter": "Effacer le filtre"
   },
   "pagination": {
     "itemsPerPage": "Éléments par page",

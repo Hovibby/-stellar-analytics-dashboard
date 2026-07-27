@@ -55,7 +55,9 @@
     "createdAt": "Creado En",
     "noData": "No hay transacciones disponibles aún. El indexador puede estar sincronizándose.",
     "success": "Éxito",
-    "failed": "Fallida"
+    "failed": "Fallida",
+    "filteredByDrillDown": "Mostrando transacciones desde {{from}} hasta {{to}}",
+    "clearFilter": "Quitar filtro"
   },
   "pagination": {
     "itemsPerPage": "Elementos por página",

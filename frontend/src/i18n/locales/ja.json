@@ -55,7 +55,9 @@
     "createdAt": "作成日時",
     "noData": "まだトランザクションがありません。インデクサーがまだ同期中かもしれません。",
     "success": "成功",
-    "failed": "失敗"
+    "failed": "失敗",
+    "filteredByDrillDown": "{{from}}〜{{to}}の取引を表示中",
+    "clearFilter": "フィルターを解除"
   },
   "pagination": {
     "itemsPerPage": "1ページあたりの項目数",
