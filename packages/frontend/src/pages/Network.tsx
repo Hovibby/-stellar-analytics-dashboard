@@ -10,11 +10,13 @@ import {
   PieChart,
   Pie,
   Cell,
-  Legend,
+  type TooltipProps,
 } from 'recharts';
 import { NETWORK_METRICS_QUERY } from '@/graphql/queries';
 import { Activity, Zap, ShieldCheck, Clock, RefreshCcw } from 'lucide-react';
 import { MetricCard } from '@/components/MetricCard';
+import { ChartTooltip } from '@/components/ChartTooltip';
+import { ChartLegend } from '@/components/ChartLegend';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
@@ -33,6 +35,34 @@ export function Network() {
   ];
 
   const metrics = data?.networkMetrics || {};
+
+  function CloseTimeTooltip({ active, payload }: TooltipProps<number, string>) {
+    if (!active || !payload?.length) return null;
+    const d = payload[0]?.payload as { timestamp: string; closeTime: number } | undefined;
+    if (!d) return null;
+    return (
+      <ChartTooltip
+        header={new Date(d.timestamp).toLocaleString()}
+        rows={[{ label: 'Close Time', value: `${d.closeTime.toFixed(1)}s`, color: '#3b82f6', dot: true }]}
+      />
+    );
+  }
+
+  function OpDistTooltip({ active, payload }: TooltipProps<number, string>) {
+    if (!active || !payload?.length) return null;
+    const d = payload[0]?.payload as { name: string; value: number } | undefined;
+    if (!d) return null;
+    const total = opData.reduce((sum: number, item: { value: number }) => sum + item.value, 0);
+    return (
+      <ChartTooltip
+        header={d.name}
+        rows={[
+          { label: 'Count', value: d.value.toLocaleString(), dot: true },
+          { label: 'Share', value: `${((d.value / total) * 100).toFixed(1)}%`, color: '#8b5cf6', dot: true },
+        ]}
+      />
+    );
+  }
 
   if (loading && !data)
     return (
@@ -119,14 +149,7 @@ export function Network() {
                   tickLine={false}
                   axisLine={false}
                 />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '12px',
-                    boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
-                  }}
-                />
+                <Tooltip content={<CloseTimeTooltip />} />
                 <Area
                   type="monotone"
                   dataKey="closeTime"
@@ -164,14 +187,8 @@ export function Network() {
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip
-                  contentStyle={{
-                    borderRadius: '12px',
-                    border: 'none',
-                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
-                  }}
-                />
-                <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
+                <Tooltip content={<OpDistTooltip />} />
+                <ChartLegend items={opData.map((d: { name: string; value: number }, i: number) => ({ label: d.name, color: COLORS[i % COLORS.length] }))} className="pt-5" />
               </PieChart>
             </ResponsiveContainer>
           </div>

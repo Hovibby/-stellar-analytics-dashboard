@@ -22,7 +22,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   Brush,
   ResponsiveContainer,
   ReferenceLine,
@@ -43,6 +42,8 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { NETWORK_METRICS_QUERY } from '@/graphql/queries';
+import { ChartTooltip } from './ChartTooltip';
+import { ChartLegend, type LegendItem } from './ChartLegend';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -151,44 +152,27 @@ function generateMockData(range: TimeRange): ChartDataPoint[] {
 
 // ── custom tooltip ────────────────────────────────────────────────────────────
 
-function CustomTooltip({ active, payload, label, range }: TooltipProps<number, string> & { range: TimeRange }) {
+function CustomTooltip({ active, payload, range }: TooltipProps<number, string> & { range: TimeRange }) {
   if (!active || !payload?.length) return null;
 
   const d = payload[0]?.payload as ChartDataPoint | undefined;
   if (!d) return null;
 
+  const header = format(new Date(d.timestamp), range === '7d' || range === '30d' ? 'MMM dd, yyyy' : 'MMM dd HH:mm');
+
   return (
-    <div className="bg-card border border-border rounded-xl shadow-xl p-3 text-xs min-w-[180px]">
-      <p className="font-semibold text-foreground mb-2 border-b border-border pb-1.5">
-        {format(new Date(d.timestamp), range === '7d' || range === '30d' ? 'MMM dd, yyyy' : 'MMM dd HH:mm')}
-      </p>
-      <div className="space-y-1.5">
-        <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground">Transactions</span>
-          <span className="font-mono font-semibold">{d.transactionCount.toLocaleString()}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-green-500">✓ Successful</span>
-          <span className="font-mono font-semibold text-green-500">{d.successfulTx.toLocaleString()}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-red-500">✗ Failed</span>
-          <span className="font-mono font-semibold text-red-500">{d.failedTx.toLocaleString()}</span>
-        </div>
-        <div className="flex justify-between gap-4 border-t border-border pt-1.5 mt-1.5">
-          <span className="text-muted-foreground">Operations</span>
-          <span className="font-mono">{d.operationCount.toLocaleString()}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground">Avg Fee</span>
-          <span className="font-mono">{d.averageFee.toFixed(0)} str</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground">Success Rate</span>
-          <span className="font-mono font-semibold text-purple-500">{d.successRate.toFixed(1)}%</span>
-        </div>
-      </div>
-    </div>
+    <ChartTooltip
+      header={header}
+      minWidth={190}
+      rows={[
+        { label: 'Transactions', value: d.transactionCount.toLocaleString(), color: 'hsl(var(--primary))', dot: true },
+        { label: 'Successful', value: d.successfulTx.toLocaleString(), color: '#10b981', dot: true },
+        { label: 'Failed', value: d.failedTx.toLocaleString(), color: '#ef4444', dot: true },
+        { label: 'Operations', value: d.operationCount.toLocaleString(), dot: true },
+        { label: 'Avg Fee', value: `${d.averageFee.toFixed(0)} str`, dot: true },
+        { label: 'Success Rate', value: `${d.successRate.toFixed(1)}%`, color: '#8b5cf6', dot: true },
+      ]}
+    />
   );
 }
 
@@ -246,6 +230,7 @@ export function TransactionsChart() {
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [activeMetric, setActiveMetric] = useState<MetricKey>('transactions');
   const [showSuccessFail, setShowSuccessFail] = useState(true);
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
   const chartRef = useRef<HTMLDivElement>(null);
 
   const { data, loading, refetch } = useQuery(NETWORK_METRICS_QUERY, {
@@ -289,6 +274,35 @@ export function TransactionsChart() {
 
   // Determine which series to render based on active metric
   const primaryColor = METRICS.find((m) => m.key === activeMetric)?.color ?? 'hsl(var(--primary))';
+
+  const legendItems: LegendItem[] = useMemo(() => {
+    const items: LegendItem[] = [];
+    if (activeMetric !== 'transactions' || !showSuccessFail) {
+      items.push({
+        label: METRICS.find((m) => m.key === activeMetric)?.label ?? '',
+        color: primaryColor,
+        active: !hiddenSeries.has('primary'),
+        onClick: () => toggleSeries('primary'),
+      });
+    }
+    items.push(
+      { label: 'Successful', color: '#10b981', active: !hiddenSeries.has('successfulTx'), onClick: () => toggleSeries('successfulTx') },
+      { label: 'Failed', color: '#ef4444', active: !hiddenSeries.has('failedTx'), onClick: () => toggleSeries('failedTx') },
+    );
+    if (activeMetric !== 'successRate') {
+      items.push({ label: 'Success %', color: '#8b5cf6', active: !hiddenSeries.has('successRate'), onClick: () => toggleSeries('successRate') });
+    }
+    return items;
+  }, [activeMetric, showSuccessFail, hiddenSeries, primaryColor]);
+
+  function toggleSeries(key: string) {
+    setHiddenSeries((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   const tickFormatter = useCallback(
     (ts: string) => formatTimestamp(ts, timeRange),
@@ -499,10 +513,9 @@ export function TransactionsChart() {
 
               <Tooltip content={<CustomTooltip range={timeRange} />} />
 
-              <Legend
-                wrapperStyle={{ fontSize: '11px', paddingTop: '12px' }}
-                iconType="circle"
-                iconSize={8}
+              <ChartLegend
+                items={legendItems}
+                className="pt-3 pb-1"
               />
 
               {/* ── Primary series based on active metric ── */}
@@ -510,44 +523,50 @@ export function TransactionsChart() {
                 <>
                   {showSuccessFail ? (
                     <>
-                      <Bar
-                        yAxisId="left"
-                        dataKey="successfulTx"
-                        name="Successful"
-                        stackId="tx"
-                        fill="#10b981"
-                        fillOpacity={0.85}
-                        radius={[0, 0, 0, 0]}
-                        maxBarSize={20}
-                      />
-                      <Bar
-                        yAxisId="left"
-                        dataKey="failedTx"
-                        name="Failed"
-                        stackId="tx"
-                        fill="#ef4444"
-                        fillOpacity={0.85}
-                        radius={[2, 2, 0, 0]}
-                        maxBarSize={20}
-                      />
+                      {!hiddenSeries.has('successfulTx') && (
+                        <Bar
+                          yAxisId="left"
+                          dataKey="successfulTx"
+                          name="Successful"
+                          stackId="tx"
+                          fill="#10b981"
+                          fillOpacity={0.85}
+                          radius={[0, 0, 0, 0]}
+                          maxBarSize={20}
+                        />
+                      )}
+                      {!hiddenSeries.has('failedTx') && (
+                        <Bar
+                          yAxisId="left"
+                          dataKey="failedTx"
+                          name="Failed"
+                          stackId="tx"
+                          fill="#ef4444"
+                          fillOpacity={0.85}
+                          radius={[2, 2, 0, 0]}
+                          maxBarSize={20}
+                        />
+                      )}
                     </>
                   ) : (
-                    <Area
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey="transactionCount"
-                      name="Transactions"
-                      stroke={primaryColor}
-                      strokeWidth={2}
-                      fill="url(#txGradient)"
-                      dot={false}
-                      activeDot={{ r: 4, strokeWidth: 0 }}
-                    />
+                    !hiddenSeries.has('primary') && (
+                      <Area
+                        yAxisId="left"
+                        type="monotone"
+                        dataKey="transactionCount"
+                        name="Transactions"
+                        stroke={primaryColor}
+                        strokeWidth={2}
+                        fill="url(#txGradient)"
+                        dot={false}
+                        activeDot={{ r: 4, strokeWidth: 0 }}
+                      />
+                    )
                   )}
                 </>
               )}
 
-              {activeMetric === 'operations' && (
+              {activeMetric === 'operations' && !hiddenSeries.has('primary') && (
                 <Area
                   yAxisId="left"
                   type="monotone"
@@ -561,7 +580,7 @@ export function TransactionsChart() {
                 />
               )}
 
-              {activeMetric === 'fees' && (
+              {activeMetric === 'fees' && !hiddenSeries.has('primary') && (
                 <Line
                   yAxisId="left"
                   type="monotone"
@@ -574,7 +593,7 @@ export function TransactionsChart() {
                 />
               )}
 
-              {activeMetric === 'successRate' && (
+              {activeMetric === 'successRate' && !hiddenSeries.has('primary') && (
                 <>
                   <Area
                     yAxisId="left"
@@ -599,7 +618,7 @@ export function TransactionsChart() {
               )}
 
               {/* Secondary: success rate line overlay (when not in successRate mode) */}
-              {activeMetric !== 'successRate' && (
+              {activeMetric !== 'successRate' && !hiddenSeries.has('successRate') && (
                 <Line
                   yAxisId="right"
                   type="monotone"
