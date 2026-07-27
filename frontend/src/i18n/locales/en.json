@@ -55,7 +55,9 @@
     "createdAt": "Created At",
     "noData": "No transactions available yet. The indexer may still be syncing.",
     "success": "Success",
-    "failed": "Failed"
+    "failed": "Failed",
+    "filteredByDrillDown": "Showing transactions from {{from}} to {{to}}",
+    "clearFilter": "Clear filter"
   },
   "pagination": {
     "itemsPerPage": "Items per page",
@@ -74,6 +76,8 @@
     "successRate": "Success rate",
     "autoRefresh": "auto-refreshes every 30s",
     "updating": "Updating…",
-    "refreshChart": "Refresh chart"
+    "refreshChart": "Refresh chart",
+    "ariaGroupLabel": "Transaction volume chart with {{count}} data points. Activate a bar to inspect that time period's transactions.",
+    "barAriaLabel": "{{time}}: {{count}} transactions, {{successRate}}% success rate. Activate to view transactions from this period."
   }
 }

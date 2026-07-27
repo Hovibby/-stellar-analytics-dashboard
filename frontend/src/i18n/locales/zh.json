@@ -55,7 +55,9 @@
     "createdAt": "创建时间",
     "noData": "暂无交易可用。索引器可能仍在同步中。",
     "success": "成功",
-    "failed": "失败"
+    "failed": "失败",
+    "filteredByDrillDown": "显示 {{from}} 至 {{to}} 的交易",
+    "clearFilter": "清除筛选"
   },
   "pagination": {
     "itemsPerPage": "每页项目数",
@@ -74,6 +76,8 @@
     "successRate": "成功率",
     "autoRefresh": "每30秒自动刷新",
     "updating": "更新中…",
-    "refreshChart": "刷新图表"
+    "refreshChart": "刷新图表",
+    "ariaGroupLabel": "包含 {{count}} 个数据点的交易量图表。激活某个柱形可查看该时间段的交易。",
+    "barAriaLabel": "{{time}}：{{count}} 笔交易，成功率 {{successRate}}%。激活以查看此时间段的交易。"
   }
 }

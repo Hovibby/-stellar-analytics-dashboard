@@ -55,7 +55,9 @@
     "createdAt": "Créé À",
     "noData": "Aucune transaction disponible pour le moment. L'indexeur est peut-être encore en synchronisation.",
     "success": "Succès",
-    "failed": "Échec"
+    "failed": "Échec",
+    "filteredByDrillDown": "Transactions affichées du {{from}} au {{to}}",
+    "clearFilter": "Effacer le filtre"
   },
   "pagination": {
     "itemsPerPage": "Éléments par page",
@@ -74,6 +76,8 @@
     "successRate": "Taux de succès",
     "autoRefresh": "actualisation automatique toutes les 30s",
     "updating": "Mise à jour…",
-    "refreshChart": "Actualiser le graphique"
+    "refreshChart": "Actualiser le graphique",
+    "ariaGroupLabel": "Graphique du volume de transactions avec {{count}} points de données. Activez une barre pour consulter les transactions de cette période.",
+    "barAriaLabel": "{{time}} : {{count}} transactions, taux de réussite de {{successRate}}%. Activer pour voir les transactions de cette période."
   }
 }

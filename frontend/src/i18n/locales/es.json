@@ -55,7 +55,9 @@
     "createdAt": "Creado En",
     "noData": "No hay transacciones disponibles aún. El indexador puede estar sincronizándose.",
     "success": "Éxito",
-    "failed": "Fallida"
+    "failed": "Fallida",
+    "filteredByDrillDown": "Mostrando transacciones desde {{from}} hasta {{to}}",
+    "clearFilter": "Quitar filtro"
   },
   "pagination": {
     "itemsPerPage": "Elementos por página",
@@ -74,6 +76,8 @@
     "successRate": "Tasa de éxito",
     "autoRefresh": "se actualiza automáticamente cada 30s",
     "updating": "Actualizando…",
-    "refreshChart": "Actualizar gráfico"
+    "refreshChart": "Actualizar gráfico",
+    "ariaGroupLabel": "Gráfico de volumen de transacciones con {{count}} puntos de datos. Active una barra para ver las transacciones de ese período.",
+    "barAriaLabel": "{{time}}: {{count}} transacciones, {{successRate}}% de éxito. Active para ver las transacciones de este período."
   }
 }

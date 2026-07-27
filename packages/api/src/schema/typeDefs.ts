@@ -214,7 +214,100 @@ export const typeDefs = gql`
     updatedAt: DateTime!
   }
 
-  "Time-series metrics for the Stellar network"
+  # ── Concrete Connection / Edge types ───────────────────────────────────────
+
+  type LedgerEdge {
+    cursor: String!
+    node: Ledger!
+  }
+
+  type LedgerConnection {
+    edges: [LedgerEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type TransactionEdge {
+    cursor: String!
+    node: Transaction!
+  }
+
+  type TransactionConnection {
+    edges: [TransactionEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type OperationEdge {
+    cursor: String!
+    node: Operation!
+  }
+
+  type OperationConnection {
+    edges: [OperationEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type AccountEdge {
+    cursor: String!
+    node: Account!
+  }
+
+  type AccountConnection {
+    edges: [AccountEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type AssetEdge {
+    cursor: String!
+    node: Asset!
+  }
+
+  type AssetConnection {
+    edges: [AssetEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type AssetMetricsEdge {
+    cursor: String!
+    node: AssetMetrics!
+  }
+
+  """
+  Summary totals across ALL matching assets (not just the current page) —
+  issue #220: aggregation endpoints should return totals alongside
+  paginated results, not just the current page's data.
+  """
+  type AssetMetricsAggregate {
+    totalVolume24h: String!
+    totalTrades24h: Int!
+    averagePriceChange24h: Float!
+    totalHolders: Int!
+  }
+
+  type AssetMetricsConnection {
+    edges: [AssetMetricsEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+    aggregates: AssetMetricsAggregate!
+  }
+
+  type AccountMetricsEdge {
+    cursor: String!
+    node: AccountMetrics!
+  }
+
+  type AccountMetricsConnection {
+    edges: [AccountMetricsEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  # ── Analytics types ────────────────────────────────────────────────────────
+
   type NetworkMetrics {
     "Timestamp of this data point"
     timestamp: DateTime!
@@ -234,7 +327,23 @@ export const typeDefs = gql`
     successRate: Float!
   }
 
-  "Aggregated metrics for a specific Stellar asset"
+  """
+  Aggregated totals for `networkMetrics` over a time range — issue #220:
+  aggregation endpoints should return summary counts/totals, not just the
+  raw list of per-bucket data points.
+  """
+  type NetworkMetricsSummary {
+    dataPointCount: Int!
+    totalLedgers: Int!
+    totalTransactions: Int!
+    totalOperations: Int!
+    totalVolume: String!
+    averageFee: Float!
+    averageSuccessRate: Float!
+    earliestTimestamp: DateTime
+    latestTimestamp: DateTime
+  }
+
   type AssetMetrics {
     "The asset these metrics apply to"
     asset: Asset!
@@ -450,7 +559,9 @@ export const typeDefs = gql`
       timeRange: TimeRangeInput
     ): [NetworkMetrics!]!
 
-    "Retrieve asset-level metrics and trading statistics"
+    "Aggregated totals across the same time range as networkMetrics (issue #220)."
+    networkMetricsSummary(timeRange: TimeRangeInput): NetworkMetricsSummary!
+
     assetMetrics(
       "Pagination options"
       pagination: PaginationInput
