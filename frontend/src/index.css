@@ -25,6 +25,7 @@
   --color-input-disabled: #f3f4f6;
   --color-skeleton-start: #f3f4f6;
   --color-skeleton-end: #e5e7eb;
+  --color-skeleton: #e5e7eb;
   --color-progress-bg: #e5e7eb;
   
   /* Transition */
@@ -56,6 +57,7 @@
   --color-input-disabled: #0f172a;
   --color-skeleton-start: #1e293b;
   --color-skeleton-end: #334155;
+  --color-skeleton: #334155;
   --color-progress-bg: #334155;
 }
 
@@ -84,4 +86,111 @@ body {
   border-radius: 12px;
   padding: 16px;
   transition: background var(--transition-speed) ease, border-color var(--transition-speed) ease;
+}
+
+/* Skeleton loading states (issue #228) */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.skeleton-card {
+  background: var(--color-card-background);
+  border: 1px solid var(--color-card-border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.skeleton-line {
+  background: linear-gradient(
+    90deg,
+    var(--color-skeleton-start) 25%,
+    var(--color-skeleton-end) 50%,
+    var(--color-skeleton-start) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.skeleton-line:last-child {
+  margin-bottom: 0;
+}
+
+.skeleton-line-title {
+  width: 60%;
+  height: 14px;
+  margin-bottom: 8px;
+}
+
+.skeleton-line-value {
+  width: 40%;
+  height: 28px;
+}
+
+.skeleton-table {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: var(--color-skeleton);
+  border-radius: 8px;
+  height: 80px;
+}
+
+.skeleton-cell {
+  flex: 1;
+  background: linear-gradient(
+    90deg,
+    var(--color-skeleton-start) 25%,
+    var(--color-skeleton-end) 50%,
+    var(--color-skeleton-start) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+  height: 100%;
+}
+
+.skeleton-chart {
+  background: linear-gradient(
+    90deg,
+    var(--color-skeleton-start) 25%,
+    var(--color-skeleton-end) 50%,
+    var(--color-skeleton-start) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+  width: 100%;
+}
+
+.skeleton-chart-bar {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    var(--color-skeleton-start) 25%,
+    var(--color-skeleton-end) 50%,
+    var(--color-skeleton-start) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
 }
