@@ -1,12 +1,7 @@
 import { GraphQLResolveInfo } from 'graphql';
-import { db } from '../database/connection';
-import { buildCacheKey, cachedQuery } from '../database/cached-query';
-import { getStatsSummary } from '../services/stats-service';
-
-const NETWORK_METRICS_CACHE_TTL_SECONDS = Number(
-  process.env.NETWORK_METRICS_CACHE_TTL_SECONDS ?? 30
-);
 import { db, CACHE_TTL } from '../database/connection';
+import { ValidationService } from '../services/validation';
+import { getStatsSummary } from '../services/stats-service';
 
 export const analyticsResolvers = {
   Query: {
@@ -23,37 +18,6 @@ export const analyticsResolvers = {
       }
 
       const { startTime, endTime } = args.timeRange || {};
-      const cacheKey = buildCacheKey('network-metrics', { startTime, endTime });
-
-      const metrics = await cachedQuery(cacheKey, NETWORK_METRICS_CACHE_TTL_SECONDS, async () => {
-        let whereClause = 'WHERE 1=1';
-        const params: unknown[] = [];
-        let paramIndex = 1;
-
-        if (startTime) {
-          whereClause += ` AND timestamp >= $${paramIndex++}`;
-          params.push(startTime);
-        }
-        if (endTime) {
-          whereClause += ` AND timestamp <= $${paramIndex++}`;
-          params.push(endTime);
-        }
-
-        return db.query(
-          `
-          SELECT 
-            timestamp, ledger_count, transaction_count, operation_count,
-            active_accounts, total_volume, average_fee, success_rate
-          FROM network_metrics 
-          ${whereClause}
-          ORDER BY timestamp DESC
-          LIMIT 1000
-        `,
-          params
-        );
-      });
-
-      return metrics.map((metric) => ({
       const cacheKey = `networkMetrics:${startTime || 'all'}:${endTime || 'all'}`;
 
       // Try cache first
@@ -186,7 +150,6 @@ export const analyticsResolvers = {
 
       const assets = await db.query(query, params);
 
-      return assets.map((asset) => ({
       const result = assets.map(asset => ({
         asset: {
           assetType: asset.asset_type,
@@ -262,7 +225,6 @@ export const analyticsResolvers = {
         params
       );
 
-      return metrics.map((metric) => ({
       const result = metrics.map(metric => ({
         accountId: metric.account_id,
         balanceNative: metric.balance_native,
@@ -288,97 +250,5 @@ export const analyticsResolvers = {
       _context: unknown,
       _info: GraphQLResolveInfo
     ) => getStatsSummary(),
-      parent: any,
-      args: any,
-      context: any,
-      info: GraphQLResolveInfo
-    ) => {
-      const cacheKey = 'stats:latest';
-
-      // Try cache first
-      const cached = await db.cacheGet(cacheKey);
-      if (cached) {
-        return cached;
-      }
-
-      const now = new Date();
-      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-      const [
-        totalLedgers,
-        totalTransactions,
-        totalOperations,
-        totalAccounts,
-        totalAssets,
-        latestLedger,
-        activeAccounts24h,
-        activeAccounts7d,
-        activeAccounts30d,
-        volume24h,
-        volume7d,
-        volume30d,
-        averageFee24h,
-        successRate24h,
-      ] = await Promise.all([
-        db.queryOne('SELECT COUNT(*) as count FROM ledgers'),
-        db.queryOne('SELECT COUNT(*) as count FROM transactions'),
-        db.queryOne('SELECT COUNT(*) as count FROM operations'),
-        db.queryOne('SELECT COUNT(*) as count FROM accounts'),
-        db.queryOne('SELECT COUNT(*) as count FROM assets'),
-        db.queryOne('SELECT sequence, closed_at FROM ledgers ORDER BY sequence DESC LIMIT 1'),
-        db.queryOne('SELECT COUNT(DISTINCT source_account) as count FROM transactions WHERE created_at >= $1', [oneDayAgo]),
-        db.queryOne('SELECT COUNT(DISTINCT source_account) as count FROM transactions WHERE created_at >= $1', [sevenDaysAgo]),
-        db.queryOne('SELECT COUNT(DISTINCT source_account) as count FROM transactions WHERE created_at >= $1', [thirtyDaysAgo]),
-        db.queryOne(`
-          SELECT COALESCE(SUM(CAST(details->>'amount' AS NUMERIC)), 0) as volume
-          FROM operations 
-          WHERE type = 'payment' AND created_at >= $1
-        `, [oneDayAgo]),
-        db.queryOne(`
-          SELECT COALESCE(SUM(CAST(details->>'amount' AS NUMERIC)), 0) as volume
-          FROM operations 
-          WHERE type = 'payment' AND created_at >= $1
-        `, [sevenDaysAgo]),
-        db.queryOne(`
-          SELECT COALESCE(SUM(CAST(details->>'amount' AS NUMERIC)), 0) as volume
-          FROM operations 
-          WHERE type = 'payment' AND created_at >= $1
-        `, [thirtyDaysAgo]),
-        db.queryOne('SELECT AVG(fee_charged) as avg_fee FROM transactions WHERE created_at >= $1', [oneDayAgo]),
-        db.queryOne(`
-          SELECT 
-            CASE 
-              WHEN COUNT(*) > 0 THEN (COUNT(CASE WHEN successful THEN 1 END) * 100.0 / COUNT(*))
-              ELSE 0 
-            END as success_rate
-          FROM transactions 
-          WHERE created_at >= $1
-        `, [oneDayAgo]),
-      ]);
-
-      const result = {
-        totalLedgers: parseInt(totalLedgers.count),
-        totalTransactions: parseInt(totalTransactions.count),
-        totalOperations: parseInt(totalOperations.count),
-        totalAccounts: parseInt(totalAccounts.count),
-        totalAssets: parseInt(totalAssets.count),
-        activeAccounts24h: parseInt(activeAccounts24h.count),
-        activeAccounts7d: parseInt(activeAccounts7d.count),
-        activeAccounts30d: parseInt(activeAccounts30d.count),
-        volume24h: volume24h.volume,
-        volume7d: volume7d.volume,
-        volume30d: volume30d.volume,
-        averageFee24h: parseFloat(averageFee24h.avg_fee) || 0,
-        successRate24h: parseFloat(successRate24h.success_rate) || 0,
-        latestLedger: latestLedger.sequence,
-        latestLedgerTime: latestLedger.closed_at,
-      };
-
-      // Cache the result
-      await db.cacheSet(cacheKey, result, CACHE_TTL.NETWORK_STATS);
-      return result;
-    },
   },
 };

@@ -1,6 +1,7 @@
 import { ledgerResolvers } from './ledgers';
 import { transactionResolvers } from './transactions';
 import { analyticsResolvers } from './analytics';
+import { cohortResolvers } from './cohorts';
 import { pubsub, EVENTS } from '../pubsub';
 import { authService, User } from '../services/auth';
 import { db } from '../database/connection';
@@ -10,6 +11,7 @@ export const resolvers = {
     ...ledgerResolvers.Query,
     ...transactionResolvers.Query,
     ...analyticsResolvers.Query,
+    ...cohortResolvers.Query,
     me: async (_: any, __: any, context: any) => {
       if (!context.user) {
         return null;

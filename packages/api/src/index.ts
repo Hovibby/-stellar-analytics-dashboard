@@ -26,6 +26,7 @@ import {
   cleanupRateLimits 
 } from './pubsub';
 import { authService } from './services/auth';
+import { createTraceContext, extractTraceId, logTrace, getTraceResponseHeader, TraceContext } from './utils/tracer';
 
 dotenv.config();
 
@@ -136,30 +137,55 @@ class ApiServer {
 
     const plugins: any[] = [
       {
-        requestDidStart() {
+        requestDidStart(requestContext: any) {
           const startTime = Date.now();
+          const trace: TraceContext = requestContext.context?.trace;
+          
+          // Set trace ID as response header for distributed tracing
+          if (trace && requestContext.response?.http) {
+            requestContext.response.http.headers.set(
+              getTraceResponseHeader(),
+              trace.requestId
+            );
+          }
+          
           return {
             didResolveOperation(ctx: any) {
               const operation = ctx.request.operationName || 'anonymous';
               const user = ctx.context.user;
               const userId = user ? user.id : 'anonymous';
+              
+              // Update trace context with operation name
+              if (trace) {
+                trace.operationName = operation;
+              }
+              
               logger.info('GraphQL operation resolved', {
                 operation,
                 userId,
+                traceId: trace?.requestId,
                 variables: ctx.request.variables,
               });
             },
             didEncounterErrors(ctx: any) {
               logger.error('GraphQL operation errors', {
                 operation: ctx.request.operationName,
+                traceId: trace?.requestId,
                 errors: ctx.errors,
               });
             },
             willSendResponse(ctx: any) {
               const duration = Date.now() - startTime;
+              
+              // Log trace summary for every request
+              if (trace) {
+                logTrace(trace, logger);
+              }
+              
               if (duration > 1000) {
                 logger.warn('Slow GraphQL query detected', {
                   operation: ctx.request.operationName,
+                  traceId: trace?.requestId,
                   duration,
                 });
               }
@@ -200,14 +226,17 @@ class ApiServer {
           }
         }
 
+        // Create trace context for this request
+        const incomingTraceId = extractTraceId(req.headers as Record<string, string | string[] | undefined>);
+        const trace = createTraceContext(incomingTraceId, user?.id, undefined);
+
         return {
           req,
           user,
           db,
           loaders: createLoaders(),
           logger: this.logger,
-          loaders,
-          logger,
+          trace,
           authService,
         };
       },
@@ -265,48 +294,40 @@ class ApiServer {
     useServer(
       {
         schema,
-        context: async () => ({
-          db,
-          loaders: createLoaders(),
-          logger: this.logger,
-        }),
-        onConnect: () => {
-          this.logger.info('WebSocket client connected');
-          return true;
-        context: async (ctx: any, msg: any, args: any) => {
+        context: async (ctx: any, msg: any, _args: any) => {
           const connectionParams = ctx?.connectionParams || {};
           const token = connectionParams?.token || msg?.payload?.headers?.authorization?.replace('Bearer ', '');
-          
+
           if (process.env.JWT_SECRET && token) {
             try {
               const user = verify(token, process.env.JWT_SECRET);
-              return { db, loaders, logger: this.logger, user };
+              return { db, loaders: createLoaders(), logger: this.logger, user };
             } catch (err) {
               throw new Error('Invalid authentication token');
             }
           }
-          
-          return { db, loaders, logger: this.logger };
+
+          return { db, loaders: createLoaders(), logger: this.logger };
         },
         onConnect: (ctx: any) => {
           const ip = ctx?.request?.socket?.remoteAddress || 'unknown';
-          
+
           if (!checkSubscriptionRateLimit(ip)) {
             throw new Error('Subscription rate limit exceeded');
           }
-          
+
           this.logger.info('WebSocket client connected', { ip });
           return { ip, authenticated: !!ctx?.connectionParams?.token };
         },
         onSubscribe: (ctx: any, msg: any) => {
           const ip = ctx?.ip || 'unknown';
-          
+
           if (!checkEventRateLimit(ip)) {
             throw new Error('Event rate limit exceeded');
           }
-          
-          this.logger.info('WebSocket subscription started', { 
-            ip, 
+
+          this.logger.info('WebSocket subscription started', {
+            ip,
             query: msg?.payload?.query?.substring(0, 100),
           });
         },

@@ -2,6 +2,7 @@ import { Pool, PoolClient } from 'pg';
 import { createClient } from 'redis';
 import winston from 'winston';
 import { recordQueryExecution, getQueryMetrics } from './query-monitor';
+import { startSpan, endSpan, TraceContext } from '../utils/tracer';
 
 // Cache TTL constants (in seconds)
 export const CACHE_TTL = {
@@ -50,6 +51,7 @@ export class DatabaseConnection {
   private pool: Pool;
   private redis: ReturnType<typeof createClient>;
   private logger: winston.Logger;
+  private currentTrace: TraceContext | null = null;
 
   private constructor() {
     this.logger = winston.createLogger({
@@ -97,6 +99,21 @@ export class DatabaseConnection {
     });
   }
 
+  /**
+   * Set the trace context for the current request.
+   * This enables tracing of database and cache operations.
+   */
+  public setTraceContext(trace: TraceContext | null): void {
+    this.currentTrace = trace;
+  }
+
+  /**
+   * Get the current trace context.
+   */
+  public getTraceContext(): TraceContext | null {
+    return this.currentTrace;
+  }
+
   public async connect(): Promise<void> {
     try {
       await this.pool.connect();
@@ -133,11 +150,29 @@ export class DatabaseConnection {
 
   public async query<T = any>(text: string, params?: any[]): Promise<T[]> {
     const startedAt = performance.now();
+
+    // Emit trace span if a trace context is active
+    const span = this.currentTrace
+      ? startSpan(this.currentTrace, 'database', 'query', { sql: text.substring(0, 200) })
+      : null;
+
     const client = await this.getClient();
     try {
       const result = await client.query(text, params);
-      recordQueryExecution(text, performance.now() - startedAt, result.rowCount, this.logger);
+      const duration = performance.now() - startedAt;
+      recordQueryExecution(text, duration, result.rowCount, this.logger);
+
+      if (span) {
+        span.metadata = { ...span.metadata, rowCount: result.rowCount, durationMs: Math.round(duration * 100) / 100 };
+        endSpan(span);
+      }
+
       return result.rows;
+    } catch (err) {
+      if (span) {
+        endSpan(span, err instanceof Error ? err : new Error(String(err)));
+      }
+      throw err;
     } finally {
       client.release();
     }
@@ -165,17 +200,41 @@ export class DatabaseConnection {
 
   // Redis helper methods
   public async cacheSet(key: string, value: any, ttl?: number): Promise<void> {
-    const serializedValue = JSON.stringify(value);
-    if (ttl) {
-      await this.redis.setEx(key, ttl, serializedValue);
-    } else {
-      await this.redis.set(key, serializedValue);
+    const span = this.currentTrace
+      ? startSpan(this.currentTrace, 'cache', 'set', { cacheKey: key })
+      : null;
+
+    try {
+      const serializedValue = JSON.stringify(value);
+      if (ttl) {
+        await this.redis.setEx(key, ttl, serializedValue);
+      } else {
+        await this.redis.set(key, serializedValue);
+      }
+      if (span) endSpan(span);
+    } catch (err) {
+      if (span) endSpan(span, err instanceof Error ? err : new Error(String(err)));
+      throw err;
     }
   }
 
   public async cacheGet<T = any>(key: string): Promise<T | null> {
-    const value = await this.redis.get(key);
-    return value ? JSON.parse(value) : null;
+    const span = this.currentTrace
+      ? startSpan(this.currentTrace, 'cache', 'get', { cacheKey: key })
+      : null;
+
+    try {
+      const value = await this.redis.get(key);
+      const result = value ? JSON.parse(value) : null;
+      if (span) {
+        span.metadata = { ...span.metadata, cacheHit: result !== null };
+        endSpan(span);
+      }
+      return result;
+    } catch (err) {
+      if (span) endSpan(span, err instanceof Error ? err : new Error(String(err)));
+      throw err;
+    }
   }
 
   public async cacheDel(key: string): Promise<void> {
