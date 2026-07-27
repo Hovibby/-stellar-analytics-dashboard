@@ -82,3 +82,31 @@ export const NETWORK_METRICS_QUERY = gql`
     }
   }
 `;
+
+export const TOP_ASSETS_QUERY = gql`
+  query GetTopAssets($limit: Int) {
+    topAssets(limit: $limit) {
+      asset {
+        assetType
+        assetCode
+        assetIssuer
+        native
+      }
+      volume24h
+      trades24h
+      priceChange24h
+      holders
+    }
+  }
+`;
+
+export const TOP_ACCOUNTS_QUERY = gql`
+  query GetTopAccounts($limit: Int) {
+    topAccounts(limit: $limit) {
+      accountId
+      balanceNative
+      transactionCount24h
+      isActive
+    }
+  }
+`;

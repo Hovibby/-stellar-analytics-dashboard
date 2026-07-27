@@ -74,6 +74,38 @@
     "successRate": "Taux de succès",
     "autoRefresh": "actualisation automatique toutes les 30s",
     "updating": "Mise à jour…",
-    "refreshChart": "Actualiser le graphique"
+    "refreshChart": "Actualiser le graphique",
+    "successRateOverTime": "Taux de Succès dans le Temps",
+    "successful": "Réussi",
+    "failed": "Échoué"
+  },
+  "widgets": {
+    "topAssets": "Meilleurs Actifs",
+    "topAccounts": "Meilleurs Comptes",
+    "byVolume24h": "par volume 24h",
+    "byActivity24h": "par activité 24h",
+    "volume": "Volume",
+    "trades": "Échanges",
+    "holders": "Détenteurs",
+    "balance": "Solde",
+    "txCount24h": "Tx (24h)",
+    "active": "Actif",
+    "inactive": "Inactif",
+    "noData": "Aucune donnée disponible pour le moment."
+  },
+  "layout": {
+    "customize": "Personnaliser la mise en page",
+    "done": "Terminé",
+    "panels": "Panneaux",
+    "moveUp": "Monter",
+    "moveDown": "Descendre",
+    "hidePanel": "Masquer le panneau",
+    "showPanel": "Afficher le panneau",
+    "resetLayout": "Réinitialiser",
+    "panel.metrics": "Indicateurs Clés",
+    "panel.transactionsChart": "Graphique du Volume de Transactions",
+    "panel.successRateChart": "Graphique du Taux de Succès",
+    "panel.topAssets": "Widget des Meilleurs Actifs",
+    "panel.topAccounts": "Widget des Meilleurs Comptes"
   }
 }

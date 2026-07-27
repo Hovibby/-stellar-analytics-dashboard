@@ -74,6 +74,38 @@
     "successRate": "Tasa de éxito",
     "autoRefresh": "se actualiza automáticamente cada 30s",
     "updating": "Actualizando…",
-    "refreshChart": "Actualizar gráfico"
+    "refreshChart": "Actualizar gráfico",
+    "successRateOverTime": "Tasa de Éxito en el Tiempo",
+    "successful": "Exitoso",
+    "failed": "Fallido"
+  },
+  "widgets": {
+    "topAssets": "Principales Activos",
+    "topAccounts": "Principales Cuentas",
+    "byVolume24h": "por volumen 24h",
+    "byActivity24h": "por actividad 24h",
+    "volume": "Volumen",
+    "trades": "Operaciones",
+    "holders": "Titulares",
+    "balance": "Saldo",
+    "txCount24h": "Tx (24h)",
+    "active": "Activo",
+    "inactive": "Inactivo",
+    "noData": "No hay datos disponibles aún."
+  },
+  "layout": {
+    "customize": "Personalizar diseño",
+    "done": "Listo",
+    "panels": "Paneles",
+    "moveUp": "Subir",
+    "moveDown": "Bajar",
+    "hidePanel": "Ocultar panel",
+    "showPanel": "Mostrar panel",
+    "resetLayout": "Restablecer",
+    "panel.metrics": "Métricas Clave",
+    "panel.transactionsChart": "Gráfico de Volumen de Transacciones",
+    "panel.successRateChart": "Gráfico de Tasa de Éxito",
+    "panel.topAssets": "Widget de Principales Activos",
+    "panel.topAccounts": "Widget de Principales Cuentas"
   }
 }

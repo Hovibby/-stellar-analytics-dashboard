@@ -74,6 +74,38 @@
     "successRate": "成功率",
     "autoRefresh": "30秒ごとに自動更新",
     "updating": "更新中…",
-    "refreshChart": "チャートを更新"
+    "refreshChart": "チャートを更新",
+    "successRateOverTime": "成功率の推移",
+    "successful": "成功",
+    "failed": "失敗"
+  },
+  "widgets": {
+    "topAssets": "トップアセット",
+    "topAccounts": "トップアカウント",
+    "byVolume24h": "24時間の取引量順",
+    "byActivity24h": "24時間のアクティビティ順",
+    "volume": "取引量",
+    "trades": "取引数",
+    "holders": "保有者数",
+    "balance": "残高",
+    "txCount24h": "取引数（24時間）",
+    "active": "アクティブ",
+    "inactive": "非アクティブ",
+    "noData": "まだデータがありません。"
+  },
+  "layout": {
+    "customize": "レイアウトをカスタマイズ",
+    "done": "完了",
+    "panels": "パネル",
+    "moveUp": "上へ移動",
+    "moveDown": "下へ移動",
+    "hidePanel": "パネルを非表示",
+    "showPanel": "パネルを表示",
+    "resetLayout": "デフォルトに戻す",
+    "panel.metrics": "主要指標",
+    "panel.transactionsChart": "トランザクション量チャート",
+    "panel.successRateChart": "成功率チャート",
+    "panel.topAssets": "トップアセットウィジェット",
+    "panel.topAccounts": "トップアカウントウィジェット"
   }
 }

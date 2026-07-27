@@ -337,6 +337,12 @@ export const typeDefs = gql`
       timeRange: TimeRangeInput
     ): AccountMetricsConnection!
 
+    # Top N assets by 24h trading volume (issue #247)
+    topAssets(limit: Int): [AssetMetrics!]!
+
+    # Top N accounts by 24h transaction activity (issue #247)
+    topAccounts(limit: Int): [AccountMetrics!]!
+
     # Aggregated network statistics
     stats: NetworkStats!
   }

@@ -6,10 +6,15 @@
  * Now includes paginated list views for ledgers and transactions.
  */
 import { TransactionsChart } from '../components/TransactionsChart';
+import { SuccessRateChart } from '../components/SuccessRateChart';
+import { TopAssetsWidget } from '../components/TopAssetsWidget';
+import { TopAccountsWidget } from '../components/TopAccountsWidget';
+import { LayoutCustomizer } from '../components/LayoutCustomizer';
 import { ExportControls } from '../components/ExportControls';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { useDashboardData } from '../hooks/useDashboardData';
+import { useDashboardLayout } from '../hooks/useDashboardLayout';
 import { statsToArray } from '../utils/exportUtils';
 import { LedgersList } from '../components/LedgersList';
 import { TransactionsList } from '../components/TransactionsList';
@@ -20,6 +25,9 @@ export function DashboardPage() {
   const { data, loading, error, retry } = useDashboardData();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'ledgers' | 'transactions'>('dashboard');
   const { t } = useTranslation();
+  const { layout, toggleVisibility, move, reset } = useDashboardLayout();
+  const isPanelVisible = (id: string) =>
+    layout.find((p) => p.id === id)?.visible ?? true;
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loading && !data) {
@@ -120,6 +128,16 @@ export function DashboardPage() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {/* Dashboard layout customization (issue #231) */}
+          {activeTab === 'dashboard' && (
+            <LayoutCustomizer
+              layout={layout}
+              toggleVisibility={toggleVisibility}
+              move={move}
+              reset={reset}
+            />
+          )}
+
           {/* Language switcher */}
           <LanguageSwitcher />
 
@@ -234,41 +252,93 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Tab Content */}
+      {/* Tab Content — panel order/visibility driven by useDashboardLayout (issue #231) */}
       {activeTab === 'dashboard' && (
         <>
-          <div className="grid">
-            {metrics.map(({ label, value }) => (
-              <article key={label} className="card">
-                <h3
-                  style={{
-                    margin: '0 0 8px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    color: '#6b7280',
-                  }}
-                >
-                  {label}
-                </h3>
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: '24px',
-                    fontWeight: 700,
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
-                >
-                  {value}
-                </p>
-              </article>
-            ))}
-          </div>
-
-          <div className="grid" style={{ marginTop: '24px' }}>
-            <TransactionsChart />
-          </div>
+          {layout
+            .filter((panel) => panel.visible)
+            .map((panel) => {
+              switch (panel.id) {
+                case 'metrics':
+                  return (
+                    <div className="grid" key="metrics">
+                      {metrics.map(({ label, value }) => (
+                        <article key={label} className="card">
+                          <h3
+                            style={{
+                              margin: '0 0 8px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.05em',
+                              color: '#6b7280',
+                            }}
+                          >
+                            {label}
+                          </h3>
+                          <p
+                            style={{
+                              margin: 0,
+                              fontSize: '24px',
+                              fontWeight: 700,
+                              fontVariantNumeric: 'tabular-nums',
+                            }}
+                          >
+                            {value}
+                          </p>
+                        </article>
+                      ))}
+                    </div>
+                  );
+                case 'transactionsChart':
+                  return (
+                    <div className="grid" style={{ marginTop: '24px' }} key="transactionsChart">
+                      <TransactionsChart />
+                    </div>
+                  );
+                case 'successRateChart':
+                  return (
+                    <div className="grid" style={{ marginTop: '24px' }} key="successRateChart">
+                      <SuccessRateChart />
+                    </div>
+                  );
+                case 'topAssets':
+                case 'topAccounts':
+                  // Rendered together as a two-column row the first time either appears.
+                  if (panel.id === 'topAssets' && !isPanelVisible('topAccounts')) {
+                    return (
+                      <div className="grid" style={{ marginTop: '24px' }} key="topAssets">
+                        <TopAssetsWidget />
+                      </div>
+                    );
+                  }
+                  if (panel.id === 'topAccounts' && !isPanelVisible('topAssets')) {
+                    return (
+                      <div className="grid" style={{ marginTop: '24px' }} key="topAccounts">
+                        <TopAccountsWidget />
+                      </div>
+                    );
+                  }
+                  if (panel.id === 'topAssets') {
+                    return (
+                      <div
+                        className="grid"
+                        style={{
+                          marginTop: '24px',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                        }}
+                        key="topAssetsAndAccounts"
+                      >
+                        <TopAssetsWidget />
+                        <TopAccountsWidget />
+                      </div>
+                    );
+                  }
+                  return null;
+                default:
+                  return null;
+              }
+            })}
         </>
       )}
 

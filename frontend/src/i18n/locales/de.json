@@ -74,6 +74,38 @@
     "successRate": "Erfolgsrate",
     "autoRefresh": "automatische Aktualisierung alle 30s",
     "updating": "Aktualisiere…",
-    "refreshChart": "Diagramm aktualisieren"
+    "refreshChart": "Diagramm aktualisieren",
+    "successRateOverTime": "Erfolgsrate im Zeitverlauf",
+    "successful": "Erfolgreich",
+    "failed": "Fehlgeschlagen"
+  },
+  "widgets": {
+    "topAssets": "Top-Assets",
+    "topAccounts": "Top-Konten",
+    "byVolume24h": "nach 24h-Volumen",
+    "byActivity24h": "nach 24h-Aktivität",
+    "volume": "Volumen",
+    "trades": "Trades",
+    "holders": "Inhaber",
+    "balance": "Guthaben",
+    "txCount24h": "Tx (24h)",
+    "active": "Aktiv",
+    "inactive": "Inaktiv",
+    "noData": "Noch keine Daten verfügbar."
+  },
+  "layout": {
+    "customize": "Layout anpassen",
+    "done": "Fertig",
+    "panels": "Panels",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "hidePanel": "Panel ausblenden",
+    "showPanel": "Panel einblenden",
+    "resetLayout": "Zurücksetzen",
+    "panel.metrics": "Wichtige Kennzahlen",
+    "panel.transactionsChart": "Transaktionsvolumen-Diagramm",
+    "panel.successRateChart": "Erfolgsraten-Diagramm",
+    "panel.topAssets": "Top-Assets-Widget",
+    "panel.topAccounts": "Top-Konten-Widget"
   }
 }

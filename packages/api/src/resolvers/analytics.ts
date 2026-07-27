@@ -253,6 +253,110 @@ export const analyticsResolvers = {
       }
     ),
 
+    // Issue #247: top N assets by 24h trading volume.
+    topAssets: withResolverLogging(
+      'Query.topAssets',
+      async (
+        parent: unknown,
+        args: { limit?: number },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ) => {
+        const limit = Math.min(Math.max(args.limit ?? 5, 1), 50);
+        const cacheKey = buildCacheKey('top-assets', { limit });
+
+        const assets = await cachedQuery(cacheKey, CACHE_TTL.ASSET_DATA, async () => {
+          const query = `
+            SELECT DISTINCT ON (a.id)
+              a.id, a.asset_type, a.asset_code, a.asset_issuer, a.native,
+              am.volume_24h, am.volume_7d, am.volume_30d,
+              am.trades_24h, am.trades_7d, am.trades_30d,
+              am.price_change_24h, am.market_cap, am.holders
+            FROM assets a
+            LEFT JOIN LATERAL (
+              SELECT volume_24h, volume_7d, volume_30d, trades_24h, trades_7d, trades_30d,
+                     price_change_24h, market_cap, holders
+              FROM asset_metrics
+              WHERE asset_id = a.id
+              ORDER BY timestamp DESC
+              LIMIT 1
+            ) am ON TRUE
+            WHERE am.volume_24h IS NOT NULL
+            ORDER BY a.id, am.volume_24h DESC
+          `;
+          const rows = await db.query(query, []);
+          return rows
+            .sort((a, b) => Number(b.volume_24h ?? 0) - Number(a.volume_24h ?? 0))
+            .slice(0, limit);
+        });
+
+        return assets.map((asset) => ({
+          asset: {
+            assetType: asset.asset_type,
+            assetCode: asset.asset_code,
+            assetIssuer: asset.asset_issuer,
+            native: asset.native,
+          },
+          volume24h: asset.volume_24h,
+          volume7d: asset.volume_7d,
+          volume30d: asset.volume_30d,
+          trades24h: asset.trades_24h,
+          trades7d: asset.trades_7d,
+          trades30d: asset.trades_30d,
+          priceChange24h: parseFloat(asset.price_change_24h ?? '0'),
+          marketCap: asset.market_cap,
+          holders: asset.holders,
+        }));
+      }
+    ),
+
+    // Issue #247: top N accounts by 24h transaction activity.
+    topAccounts: withResolverLogging(
+      'Query.topAccounts',
+      async (
+        parent: unknown,
+        args: { limit?: number },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ) => {
+        const limit = Math.min(Math.max(args.limit ?? 5, 1), 50);
+        const cacheKey = buildCacheKey('top-accounts', { limit });
+
+        const accounts = await cachedQuery(cacheKey, CACHE_TTL.ACCOUNT_STATS, async () => {
+          const query = `
+            SELECT DISTINCT ON (account_id)
+              account_id, timestamp, balance_native, total_balance_usd,
+              transaction_count_24h, transaction_count_7d, transaction_count_30d,
+              first_transaction, last_transaction, is_active, trustlines, signers
+            FROM account_metrics
+            ORDER BY account_id, timestamp DESC
+          `;
+          const rows = await db.query(query, []);
+          return rows
+            .sort(
+              (a, b) =>
+                Number(b.transaction_count_24h ?? 0) - Number(a.transaction_count_24h ?? 0)
+            )
+            .slice(0, limit);
+        });
+
+        return accounts.map((metric) => ({
+          accountId: metric.account_id,
+          timestamp: metric.timestamp,
+          balanceNative: metric.balance_native,
+          totalBalanceUsd: metric.total_balance_usd,
+          transactionCount24h: metric.transaction_count_24h,
+          transactionCount7d: metric.transaction_count_7d,
+          transactionCount30d: metric.transaction_count_30d,
+          firstTransaction: metric.first_transaction,
+          lastTransaction: metric.last_transaction,
+          isActive: metric.is_active,
+          trustlines: metric.trustlines,
+          signers: metric.signers,
+        }));
+      }
+    ),
+
     stats: withResolverLogging(
       'Query.stats',
       async (parent: unknown, args: unknown, _context: unknown, _info: GraphQLResolveInfo) => {
