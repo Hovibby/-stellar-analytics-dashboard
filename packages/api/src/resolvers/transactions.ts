@@ -4,6 +4,9 @@ import { mapOperation, mapTransaction } from '../utils/mappers';
 import type { ApiLoaders } from '../loaders';
 import { ValidationService } from '../services/validation';
 import { withResolverLogging, NotFoundError } from '../utils/resolver-error';
+import { createConnection, PaginationArgs } from '../utils/pagination';
+import { buildCacheKey, cachedQuery } from '../database/cached-query';
+import { Connection } from '@stellar-analytics/shared';
 
 export interface ResolverContext {
   loaders: ApiLoaders;
@@ -16,7 +19,7 @@ export const transactionResolvers = {
       async (
         parent: unknown,
         args: {
-          pagination?: { first?: number; after?: string; last?: number; before?: string };
+          pagination?: PaginationArgs;
           timeRange?: { startTime?: string; endTime?: string };
           filter?: {
             successful?: boolean;
@@ -28,127 +31,82 @@ export const transactionResolvers = {
         },
         context: ResolverContext,
         _info: GraphQLResolveInfo
-      ) => {
-      const { first = 20, after, before } = args.pagination || {};
+      ): Promise<Connection<any>> => {
+        ValidationService.validatePagination(args.pagination || {});
+        if (args.timeRange) {
+          ValidationService.validateTimeRange(args.timeRange);
+        }
+        if (args.filter) {
+          ValidationService.validateTransactionFilter(args.filter);
+        }
 
-      // Issue #31 – Validate pagination with comprehensive checks
-      const { first: validFirst } = ValidationService.validatePaginationFull(
-        args.pagination || {}
-      );
+        const { startTime, endTime } = args.timeRange || {};
+        const { successful, minFee, maxFee, hasMemo, memoType } = args.filter || {};
 
-      if (args.timeRange) {
-        ValidationService.validateTimeRange(args.timeRange);
+        const cacheKey = buildCacheKey('transactions', {
+          startTime,
+          endTime,
+          successful,
+          minFee,
+          maxFee,
+          hasMemo,
+          memoType,
+        });
+
+        const transactions = await cachedQuery(cacheKey, CACHE_TTL.LEDGER_DATA, async () => {
+          let whereClause = 'WHERE 1=1';
+          const params: unknown[] = [];
+          let paramIndex = 1;
+
+          if (startTime) {
+            whereClause += ` AND created_at >= $${paramIndex++}`;
+            params.push(startTime);
+          }
+          if (endTime) {
+            whereClause += ` AND created_at <= $${paramIndex++}`;
+            params.push(endTime);
+          }
+          if (successful !== undefined) {
+            whereClause += ` AND successful = $${paramIndex++}`;
+            params.push(successful);
+          }
+          if (minFee) {
+            whereClause += ` AND fee_charged >= $${paramIndex++}`;
+            params.push(minFee);
+          }
+          if (maxFee) {
+            whereClause += ` AND fee_charged <= $${paramIndex++}`;
+            params.push(maxFee);
+          }
+          if (hasMemo !== undefined) {
+            whereClause += ` AND memo_type ${hasMemo ? '!=' : '='} $${paramIndex++}`;
+            params.push('none');
+          }
+          if (memoType) {
+            whereClause += ` AND memo_type = $${paramIndex++}`;
+            params.push(memoType);
+          }
+
+          const query = `
+            SELECT 
+              id, paging_token, successful, hash, ledger_sequence, created_at,
+              source_account, source_account_sequence, fee_account, fee_charged,
+              max_fee, operation_count, envelope_xdr, result_xdr, result_meta_xdr,
+              fee_meta_xdr, memo_type, memo, signatures, valid_after, valid_before,
+              fee_bump_transaction, inner_transaction_hash, inner_transaction_signatures
+            FROM transactions 
+            ${whereClause}
+            ORDER BY created_at DESC
+          `;
+
+          return db.query(query, params);
+        });
+
+        const result = transactions.map(mapTransaction);
+
+        return createConnection(result, args.pagination || {}, (item) => item.paging_token);
       }
-      if (args.filter) {
-        ValidationService.validateTransactionFilter(args.filter);
-      }
-
-      const { startTime, endTime } = args.timeRange || {};
-      const { successful, minFee, maxFee, hasMemo, memoType } = args.filter || {};
-
-      const cacheKey = `transactions:${validFirst}:${after || 'none'}:${before || 'none'}:${startTime || 'all'}:${endTime || 'all'}:${successful ?? 'all'}:${minFee ?? 'none'}:${maxFee ?? 'none'}`;
-
-      // Try cache first
-      const cached = await db.cacheGet(cacheKey);
-      if (cached) {
-        await db.incrementCacheMetric('transactions');
-        return cached;
-      }
-
-      let whereClause = 'WHERE 1=1';
-      const params: unknown[] = [];
-      let paramIndex = 1;
-
-      if (startTime) {
-        whereClause += ` AND created_at >= $${paramIndex++}`;
-        params.push(startTime);
-      }
-      if (endTime) {
-        whereClause += ` AND created_at <= $${paramIndex++}`;
-        params.push(endTime);
-      }
-      if (successful !== undefined) {
-        whereClause += ` AND successful = $${paramIndex++}`;
-        params.push(successful);
-      }
-      if (minFee) {
-        whereClause += ` AND fee_charged >= $${paramIndex++}`;
-        params.push(minFee);
-      }
-      if (maxFee) {
-        whereClause += ` AND fee_charged <= $${paramIndex++}`;
-        params.push(maxFee);
-      }
-      if (hasMemo !== undefined) {
-        whereClause += ` AND memo_type ${hasMemo ? '!=' : '='} $${paramIndex++}`;
-        params.push('none');
-      }
-      if (memoType) {
-        whereClause += ` AND memo_type = $${paramIndex++}`;
-        params.push(memoType);
-      }
-
-      let cursorClause = '';
-      if (after) {
-        cursorClause = ` AND created_at < $${paramIndex++}`;
-        params.push(after);
-      } else if (before) {
-        cursorClause = ` AND created_at > $${paramIndex++}`;
-        params.push(before);
-      }
-
-      const limit = Math.min(validFirst || 20, 100);
-      const orderBy = after || !before ? 'ORDER BY created_at DESC' : 'ORDER BY created_at ASC';
-
-      const query = `
-        SELECT 
-          id, paging_token, successful, hash, ledger_sequence, created_at,
-          source_account, source_account_sequence, fee_account, fee_charged,
-          max_fee, operation_count, envelope_xdr, result_xdr, result_meta_xdr,
-          fee_meta_xdr, memo_type, memo, signatures, valid_after, valid_before,
-          fee_bump_transaction, inner_transaction_hash, inner_transaction_signatures
-        FROM transactions 
-        ${whereClause}
-        ${cursorClause}
-        ${orderBy}
-        LIMIT $${paramIndex}
-      `;
-      params.push(limit);
-
-      const transactions = await db.query(query, params);
-
-      const countQuery = `
-        SELECT COUNT(*) as total
-        FROM transactions 
-        ${whereClause}
-      `;
-      const countResult = await db.queryOne<{ total: string }>(countQuery, params.slice(0, -1));
-      const totalCount = parseInt(countResult?.total ?? '0', 10);
-
-      const edges = transactions.map((tx) => ({
-        cursor: tx.paging_token,
-        node: mapTransaction(tx),
-      }));
-
-      const startCursor = edges.length > 0 ? edges[0].cursor : null;
-      const endCursor = edges.length > 0 ? edges[edges.length - 1].cursor : null;
-
-      const result = {
-        edges,
-        pageInfo: {
-          hasNextPage: edges.length === limit,
-          hasPreviousPage: Boolean(after),
-          startCursor,
-          endCursor,
-        },
-        totalCount,
-      };
-
-      // Cache the result
-      await db.cacheSet(cacheKey, result, CACHE_TTL.LEDGER_DATA);
-      await db.incrementCacheMetric('transactions');
-      return result;
-    }),
+    ),
 
     transaction: withResolverLogging(
       'Query.transaction',

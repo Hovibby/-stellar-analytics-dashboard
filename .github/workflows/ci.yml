@@ -42,6 +42,50 @@ jobs:
           path: packages/frontend/coverage/
           retention-days: 14
 
+  migration-tests:
+    name: Migration Integration Tests
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: stellar_analytics_migrations_test
+          POSTGRES_USER: stellar_user
+          POSTGRES_PASSWORD: stellar_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run migration integration tests
+        run: pnpm --filter @stellar-analytics/indexer test:migrations
+        env:
+          DATABASE_URL: postgres://stellar_user:stellar_password@localhost:5433/stellar_analytics_migrations_test
+          NODE_ENV: test
+
   e2e-tests:
     name: E2E Tests
     timeout-minutes: 30
