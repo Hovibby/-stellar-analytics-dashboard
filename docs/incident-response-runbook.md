@@ -1252,7 +1252,7 @@ Step 6: If the server is overloaded
 |---------------|---------------------|------------------|----------------------|
 | Horizon API circuit breaker | On-call engineer | Platform team | Stellar infra team |
 | Database down/corruption | On-call engineer | DB admin / Platform | Engineering lead |
-| Data loss | On-call engineer | DB admin + Platform | Engineering lead |
+| Data loss / corruption | On-call engineer | DB admin + Platform | Engineering lead |
 | Security breach | On-call engineer | Security + Platform | CTO / Engineering VP |
 | API performance degradation | On-call engineer | API team | Senior backend |
 | Indexer stuck/stale data | On-call engineer | Indexer team | Senior backend |
