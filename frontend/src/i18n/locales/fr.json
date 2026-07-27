@@ -69,6 +69,7 @@
   },
   "chart": {
     "transactionVolume24h": "Volume des Transactions (24h)",
+    "networkComparison": "Comparaison de réseau",
     "loading": "Chargement du graphique de transactions",
     "noData": "Aucune donnée disponible pour le moment. L'indexeur est peut-être encore en synchronisation.",
     "totalTxs": "Total des txs",

@@ -107,6 +107,68 @@ export const resolvers = {
     };
   },
 
+  stats: async () => {
+    const totalLedgersRes = await query("SELECT COUNT(*) as total FROM ledgers");
+    const totalTransactionsRes = await query("SELECT COUNT(*) as total FROM transactions");
+    const totalOperationsRes = await query("SELECT COUNT(*) as total FROM operations");
+    const totalAccountsRes = await query("SELECT COUNT(DISTINCT source_account) as total FROM transactions");
+    const activeAccounts24hRes = await query("SELECT COUNT(DISTINCT source_account) as active FROM transactions WHERE created_at > NOW() - INTERVAL '24 hours'");
+    const volume24hRes = await query("SELECT SUM(amount::numeric) as volume FROM payments WHERE created_at > NOW() - INTERVAL '24 hours'");
+    const averageFee24hRes = await query("SELECT AVG(fee_charged::numeric) as avg_fee FROM transactions WHERE created_at > NOW() - INTERVAL '24 hours'");
+    const successRate24hRes = await query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE ledger_sequence IN (SELECT sequence FROM ledgers)) * 100.0 / COUNT(*) as rate
+      FROM transactions 
+      WHERE created_at > NOW() - INTERVAL '24 hours'
+    `);
+    const latestLedgerRes = await query("SELECT sequence, closed_at FROM ledgers ORDER BY sequence DESC LIMIT 1");
+
+    return {
+      totalLedgers: parseInt(totalLedgersRes.rows[0].total, 10),
+      totalTransactions: parseInt(totalTransactionsRes.rows[0].total, 10),
+      totalOperations: parseInt(totalOperationsRes.rows[0].total, 10),
+      totalAccounts: parseInt(totalAccountsRes.rows[0].total, 10),
+      totalAssets: 0, // Not tracked in current schema
+      activeAccounts24h: parseInt(activeAccounts24hRes.rows[0].active, 10),
+      volume24h: volume24hRes.rows[0].volume || "0",
+      averageFee24h: parseFloat(averageFee24hRes.rows[0].avg_fee) || 0,
+      successRate24h: parseFloat(successRate24hRes.rows[0].rate) || 0,
+      latestLedger: latestLedgerRes.rows[0]?.sequence || 0,
+      latestLedgerTime: latestLedgerRes.rows[0]?.closed_at?.toISOString() || null,
+    };
+  },
+
+  networkMetrics: async ({ timeRange }: { timeRange?: { startTime?: string; endTime?: string } }) => {
+    const startTime = timeRange?.startTime || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const endTime = timeRange?.endTime || new Date().toISOString();
+
+    const { rows } = await query(
+      `SELECT 
+        DATE_TRUNC('hour', created_at) as timestamp,
+        COUNT(*) as transaction_count,
+        (SELECT COUNT(*) FROM operations o WHERE o.created_at >= DATE_TRUNC('hour', t.created_at) AND o.created_at < DATE_TRUNC('hour', t.created_at) + INTERVAL '1 hour') as operation_count,
+        COUNT(DISTINCT source_account) as active_accounts,
+        '0' as total_volume,
+        AVG(fee_charged::numeric) as average_fee,
+        100.0 as success_rate
+       FROM transactions t
+       WHERE created_at >= $1 AND created_at <= $2
+       GROUP BY DATE_TRUNC('hour', created_at)
+       ORDER BY timestamp ASC`,
+      [startTime, endTime]
+    );
+
+    return rows.map(row => ({
+      timestamp: row.timestamp.toISOString(),
+      transactionCount: parseInt(row.transaction_count, 10),
+      operationCount: parseInt(row.operation_count, 10),
+      activeAccounts: parseInt(row.active_accounts, 10),
+      totalVolume: row.total_volume,
+      averageFee: parseFloat(row.average_fee) || 0,
+      successRate: parseFloat(row.success_rate) || 0,
+    }));
+  },
+
   assetVolume: async ({ assetCode, timeframe }: { assetCode: string; timeframe: string }) => {
     const intervalMapper: Record<string, string> = {
       '24h': '24 hours',
