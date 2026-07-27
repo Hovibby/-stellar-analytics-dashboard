@@ -21,7 +21,7 @@ import type { HealthCheckResult } from './database/connection';
 import { RealtimePublisher } from './services/realtime-publisher';
 import { checkSubscriptionRateLimit, checkEventRateLimit, cleanupRateLimits } from './pubsub';
 import { authService } from './services/auth';
-import { AuthDirective } from './directives/auth';
+import { initPerfAlerting, getPerfAlerting } from './services/performance-alerting';
 
 dotenv.config();
 
@@ -170,6 +170,15 @@ class ApiServer {
 
     // ── Request Timeout ────────────────────────────────────────────────────────────
     this.app.use(timeoutMiddleware(30000, this.logger));
+
+    // ── HTTP performance tracking middleware ──────────────────────────────────────
+    this.app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+      const start = Date.now();
+      res.on('finish', () => {
+        getPerfAlerting()?.onHttpRequest(req.method, req.path, res.statusCode, Date.now() - start);
+      });
+      next();
+    });
 
     // ── Rate limiting ─────────────────────────────────────────────────────────
     //
@@ -435,33 +444,24 @@ class ApiServer {
                 errors: ctx.errors,
               });
             },
-            willSendResponse(ctx: any) {
-              const duration = Date.now() - startTime;
-              if (duration > 30000) {
-                logger.error('GraphQL query timeout exceeded', {
-                  operation: ctx.request.operationName,
-                  duration,
-                });
-              } else if (duration > 1000) {
-                logger.warn('Slow GraphQL query detected', {
-                  operation: ctx.request.operationName,
-                  duration,
-                });
-              }
-              if (ctx.response.extensions) {
-                ctx.response.extensions.queryComplexity = {
-                  complexity: ctx.context.complexity,
-                  maxComplexity: MAX_QUERY_COMPLEXITY,
-                };
-              } else {
-                ctx.response.extensions = {
-                  queryComplexity: {
-                    complexity: ctx.context.complexity,
-                    maxComplexity: MAX_QUERY_COMPLEXITY,
-                  },
-                };
-              }
-            },
+             willSendResponse(ctx: any) {
+               const duration = Date.now() - startTime;
+               const operationName = ctx.request.operationName || 'anonymous';
+               if (duration > 30000) {
+                 logger.error('GraphQL query timeout exceeded', {
+                   operation: operationName,
+                   duration,
+                 });
+               } else if (duration > 1000) {
+                 logger.warn('Slow GraphQL query detected', {
+                   operation: operationName,
+                   duration,
+                 });
+               }
+               // Performance alerting
+               getPerfAlerting()?.onGraphQLOperation(operationName, duration);
+             },
+
           };
         },
       },
@@ -523,6 +523,10 @@ class ApiServer {
       this.validateEnvironment();
       await db.connect();
       this.logger.info('Database connections established');
+
+      // Initialise performance alerting (reads env vars automatically)
+      const perfAlerting = initPerfAlerting(this.logger);
+      perfAlerting.startHealthPolling(() => db.healthCheck());
 
       await this.apolloServer.start();
       this.logger.info('Apollo Server started');
@@ -654,6 +658,7 @@ class ApiServer {
     this.logger.info('Shutting down server...');
 
     try {
+      getPerfAlerting()?.stopHealthPolling();
       this.realtimePublisher.stop();
       await this.apolloServer.stop();
       await db.disconnect();

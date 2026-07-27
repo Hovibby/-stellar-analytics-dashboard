@@ -1,67 +1,90 @@
+## [1.0.0] – 2026-07-26
+
+### ✨ Features
+
+- implement request timeouts for Express server, DB queries, and GraphQL (`49e4bc0d`)
+- **metrics**: expand Prometheus metrics with ingestion, error, and latency tracking (`586a03f3`)
+- cursor-based pagination schema and transaction CSV/JSON export (`b493518a`)
+- **indexer**: add exponential backoff retry for Horizon requests (`05be5e58`)
+- add Zod validation for GraphQL mutations and Login form (#124, #125) (`446ef227`)
+- **api**: add API key rate limits and consistent resolver error handling (`f06668b0`)
+- **indexer**: implement circuit breaker for Horizon calls (`3dcd6eb5`)
+- implement query complexity analysis on GraphQL API (`94b199ed`)
+- add pagination to RecentTransactions component (`e1797003`)
+- implement error boundaries around route components (`26e9dc8a`)
+- add realistic loading skeletons to data tables (`ac67e8a1`)
+- **metrics**: add ingestion, error rate, and latency metrics (`e8db94e9`)
+- **indexer**: implement historical ledger backfilling (`198e787d`)
+- **indexer**: add alerting system for critical errors (`26d199c9`)
+- **api**: add liveness and readiness health check endpoints (`9874e7be`)
+- **indexer**: implement full data retention policy service (`954abc6e`)
+- **api**: add per-query debug logging with timing info (`8cc2d7c7`)
+- add component tests for packages/frontend/src/components (`ed977838`)
+- **frontend**: add internationalization and fix lint errors (`fbacd399`)
+- **indexer**: add comprehensive operational metrics to IndexerMetrics (`d9af4d6f`)
+- **frontend**: bundle size optimizations via code splitting and chunking (`f35701a8`)
+- **frontend**: add keyboard navigation to GlobalSearch (`27e2a751`)
+- **cache**: improve Redis query caching with ttl and invalidation (`5bfcb0d0`)
+- implement full idempotency protection for database operations ## Overview Implement a comprehensive, production-grade idempotency tracking system for all database write operations in the Stellar Analytics Indexer. (`af347c3b`)
+- implement full idempotency protection for database operations (`d3b12576`)
+- **testing**: add frontend testing infrastructure with Vitest, RTL, and coverage (`53c6cad3`)
+- implement dark mode with theme toggle and persistence (`2e4ca07a`)
+- add requirements spec for project documentation and security (`a61223d0`)
+- implement fixes for issues #26, #29, #34, #37 (`f6b00f24`)
+- implement comprehensive E2E testing suite with Playwright (#81) (`72075931`)
+- **indexer**: add backfill, parallel processing, config validation, and logging (#38 #45 #46 #47) (`fa4a121a`)
+- **indexer**: add validation, circuit breaker, metrics, idempotency (#39 #41 #43 #44) (`8d1936a3`)
+- complete GraphQL API for Stellar analytics (Issue #4) (`24bc3cb7`)
+- implement stellar horizon indexer with postgres storage and realtime updates (#13) (`3b013b0d`)
+- scaffold stellar analytics monorepo architecture (`9d5ebc0f`)
+
+### 🐛 Bug Fixes
+
+- implement db pooling #137 and graphql integration tests #134 (`4ba3dd88`)
+- **indexer**: add database connection pooling configuration #137 (`23296c8c`)
+- **api**: improve websocket authentication and remove duplicate handlers (`c540cabf`)
+- resolve all monorepo compilation and typescript blockers (`0677423d`)
+- resolve TypeScript errors in API packages (`69176941`)
+- resolve pre-commit hook issues (`666d32b2`)
+- **websocket**: add JWT auth, rate limiting, and message validation (Issues #33, #35) (`90c69539`)
+- **api**: add real database health checks to /health endpoint (`ffad4d6a`)
+- resolve unreachable code and duplicate imports in ledgers resolvers (`663be008`)
+- improve date handling in dailyTransactionCount resolver (`bc1f3365`)
+- add operation subscriptions and unify graphql error handling (`d35d1737`)
+- **#40,#42,#48,#49**: indexer batching, health check, graceful shutdown, GraphQL client (`b3fc3d7b`)
+- resolve issues #12, #13, #14, #17 - security & infrastructure improvements (`f035f7fb`)
+- **indexer**: resolve import and query placeholder errors (`0f7a2d83`)
+
+### 📝 Documentation
+
+- add security headers, CORS, query limits, and error handling docs (`3ddf2f11`)
+- add spec for project documentation and security (`33cdc860`)
+- add dashboard screenshot for PR (`1a178e01`)
+
+### 🧪 Tests
+
+- **indexer**: add unit tests for StellarService, IndexerService, RetentionService (`b801f81a`)
+
+### 🔧 Chores
+
+- update lockfile to match package.json (`c5a42c39`)
+- add Husky pre-commit hooks, lint-staged, and commitlint (`ddba050a`)
+- update frontend dependencies (`ff4168ba`)
+
+### 🔀 Other
+
+- Solution for #137 - Add database connection pooling configuration (`c22e0674`)
+- Solution for #137 - Add database connection pooling configuration (`779d5d85`)
+- Solution for #137 - Add database connection pooling configuration (`59506751`)
+
+---
+
 # Changelog
 
-All notable changes to this project are documented in this file.
+All notable changes to the Stellar Analytics Dashboard are documented here.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).  
-Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).  
-Commit messages follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification enforced by `commitlint`.
+Entries are generated automatically from conventional commits using
+`scripts/generate-release-notes.mjs`. See [RELEASE_NOTES.md](./docs/release-notes-process.md)
+for the full process.
 
-> **Tip:** See `docs/versioning.md` for the full release workflow, branching strategy, and guidance on what belongs in each section.
-
----
-
-## [Unreleased]
-
-### Added
-- Storybook 8 in `packages/frontend` — all presentational components now have
-  isolated stories covering every visual state (loading, data, error, empty).
-  Run with `pnpm storybook`. (#component-isolation)
-- `docs/versioning.md` — documents the conventional-commits → semver release
-  process, branch strategy, and release checklist. (#versioning-docs)
-- Pre-commit sync check (`scripts/check-sync.sh`) — blocks commits where
-  migration files, GraphQL schema, or Vitest snapshots are modified without
-  their derived artefacts also being staged. (#sync-check)
-- Migration integration test suite
-  (`packages/indexer/src/tests/migrations.test.ts`) — exercises the full
-  up/down/redo paths against a real Postgres instance. (#migration-tests)
-
----
-
-## [1.0.0] — 2025-01-28
-
-### Added
-- Full monorepo scaffold: `packages/frontend`, `packages/api`,
-  `packages/indexer`, `packages/shared`, `packages/e2e`.
-- React 18 + Vite 5 dashboard with Apollo Client 3, dark/light theming,
-  i18n (EN / ES / FR / DE / ZH / JA), and CSV/JSON export.
-- Express 5 + GraphQL API with DataLoader batching, rate limiting (100 req/min
-  per IP), and a dev playground.
-- PostgreSQL schema with ledgers, transactions, operations, accounts, assets,
-  trustlines, network metrics, asset metrics, and account metrics tables.
-- Versioned migrations via `node-pg-migrate`; three initial migrations:
-  `1738000000000_initial-schema`, `1738100000000_add-performance-indexes`,
-  `1738200000000_add-foreign-key-constraints`.
-- Playwright E2E suite across Chromium, Firefox, WebKit, Mobile Chrome, and
-  Mobile Safari.
-- Vitest unit tests with 80 % coverage thresholds on all packages.
-- GitHub Actions CI: unit tests + E2E matrix with Postgres/Redis services.
-- Nightly cross-browser E2E workflow.
-- Husky git hooks: `pre-commit` (lint-staged + conditional unit tests),
-  `commit-msg` (commitlint conventional-commits validation).
-- Cursor-based pagination (`PageInfo`, `edges`, `totalCount`) on ledgers and
-  transactions endpoints.
-- `TransactionsChart` — real-time 24-hour bar chart with polling every 30 s.
-- `ExportControls` — CSV/JSON export with date-range filtering and progress
-  indicator.
-- Docker Compose dev and production configurations, including a
-  `postgres-backup` service.
-- Comprehensive documentation: `CACHING.md`, `CONTRIBUTING.md`,
-  `docs/backup-disaster-recovery.md`, `docs/cors.md`,
-  `docs/database-migrations.md`, `docs/error-handling-and-logging.md`,
-  `docs/graphql-query-limits.md`, `docs/query-performance.md`,
-  `docs/security-headers.md`.
-
----
-
-[Unreleased]: https://github.com/your-org/stellar-analytics-dashboard/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/your-org/stellar-analytics-dashboard/releases/tag/v1.0.0
+<!-- New entries are prepended automatically by the release-notes script -->

@@ -287,6 +287,24 @@ pnpm db:migrate
 - Add troubleshooting guides
 - Update configuration examples
 
+## 🗂️ Feature Triage
+
+New feature ideas go through a structured triage and scoring process before being scheduled. See [docs/feature-triage.md](./docs/feature-triage.md) for the full process (RICE scoring, priority labels, sprint scheduling).
+
+## 📋 Release Notes
+
+Release notes are generated automatically from conventional commits. To preview what the next release entry will look like:
+
+```bash
+pnpm release:notes:preview
+```
+
+See [docs/release-notes-process.md](./docs/release-notes-process.md) for the full release workflow.
+
+## 🔧 Startup Troubleshooting
+
+Running into Docker, Node, or database startup issues? See [docs/startup-troubleshooting.md](./docs/startup-troubleshooting.md) for solutions to the most common problems.
+
 ## 🤝 Community Guidelines
 
 ### Code of Conduct
