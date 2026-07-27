@@ -22,6 +22,8 @@ import { RealtimePublisher } from './services/realtime-publisher';
 import { checkSubscriptionRateLimit, checkEventRateLimit, cleanupRateLimits } from './pubsub';
 import { authService } from './services/auth';
 import { initPerfAlerting, getPerfAlerting } from './services/performance-alerting';
+import { getDbCircuitBreaker } from './services/circuit-breaker';
+import { AuthDirective } from './directives/auth';
 
 dotenv.config();
 
@@ -405,6 +407,110 @@ class ApiServer {
     this.app.get('/metrics/queries', (_req, res) => {
       res.json(getQueryMetrics());
     });
+
+    // Issue #216 – Circuit breaker health endpoint
+    this.app.get('/health/circuit-breaker', (_req, res) => {
+      const cb = getDbCircuitBreaker(this.logger);
+      res.json({
+        db: cb.getStats(),
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    // Issue #214 – Bulk data export REST endpoint
+    this.app.get('/api/export/:entityType', async (req, res) => {
+      try {
+        const { entityType } = req.params;
+        const format = (req.query.format as string) || 'json';
+        const startTime = req.query.startTime as string | undefined;
+        const endTime = req.query.endTime as string | undefined;
+
+        if (!['transactions', 'ledgers', 'operations'].includes(entityType)) {
+          res.status(400).json({ error: 'Invalid entity type. Must be transactions, ledgers, or operations.' });
+          return;
+        }
+
+        if (!['json', 'csv'].includes(format)) {
+          res.status(400).json({ error: 'Invalid format. Must be json or csv.' });
+          return;
+        }
+
+        let whereClause = 'WHERE 1=1';
+        const params: unknown[] = [];
+        let paramIndex = 1;
+
+        if (startTime) {
+          whereClause += ` AND created_at >= $${paramIndex++}`;
+          params.push(startTime);
+        }
+        if (endTime) {
+          whereClause += ` AND created_at <= $${paramIndex++}`;
+          params.push(endTime);
+        }
+
+        let query = '';
+        switch (entityType) {
+          case 'transactions':
+            query = `
+              SELECT hash, ledger_sequence, successful, fee_charged, operation_count,
+                     source_account, created_at, memo_type, memo
+              FROM transactions ${whereClause}
+              ORDER BY created_at DESC
+              LIMIT 10000
+            `;
+            break;
+          case 'ledgers':
+            query = `
+              SELECT sequence, successful_transaction_count, failed_transaction_count,
+                     operation_count, closed_at, base_fee_in_stroops, protocol_version
+              FROM ledgers ${whereClause}
+              ORDER BY sequence DESC
+              LIMIT 10000
+            `;
+            break;
+          case 'operations':
+            query = `
+              SELECT id, transaction_hash, type, source_account, ledger_sequence,
+                     operation_index, details, created_at
+              FROM operations ${whereClause}
+              ORDER BY created_at DESC
+              LIMIT 10000
+            `;
+            break;
+        }
+
+        const rows = await db.query(query, params);
+
+        if (format === 'csv') {
+          res.setHeader('Content-Type', 'text/csv');
+          res.setHeader('Content-Disposition', `attachment; filename="${entityType}_export.csv"`);
+          if (rows.length === 0) {
+            res.send('');
+            return;
+          }
+          const headers = Object.keys(rows[0]);
+          const csvLines = [headers.join(',')];
+          for (const row of rows) {
+            const values = headers.map((h) => {
+              const val = row[h];
+              const str = val === null || val === undefined ? '' : String(val);
+              return str.includes(',') || str.includes('"') || str.includes('\n')
+                ? `"${str.replace(/"/g, '""')}"`
+                : str;
+            });
+            csvLines.push(values.join(','));
+          }
+          res.send(csvLines.join('\n'));
+        } else {
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Content-Disposition', `attachment; filename="${entityType}_export.json"`);
+          res.json(rows);
+        }
+      } catch (error: any) {
+        this.logger.error('Export endpoint error', { error: error?.message });
+        res.status(500).json({ error: 'Export failed', message: error?.message });
+      }
+    });
   }
 
   private setupApolloServer(): void {
@@ -513,6 +619,12 @@ class ApiServer {
       introspection: !isProduction,
       validationRules: [depthLimit(10) as any],
       plugins,
+      // Issue #217 – Enable automatic persisted queries to reduce payload size
+      // Clients can send a hash of the query instead of the full query text.
+      // Falls back to full query if hash is not found in the APQ cache.
+      persistedQueries: {
+        cache: new Map<string, string>(),
+      },
     });
   }
 
