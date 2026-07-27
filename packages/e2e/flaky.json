@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "description": "Quarantine list for known-flaky E2E tests. Tests listed here are skipped in the main CI run and run separately in the flaky-detection workflow with --repeat-each=3. To graduate a test out of quarantine, remove its entry and open a PR referencing the stabilisation issue.",
+  "quarantined": [
+    {
+      "title": "Performance > should load dashboard within acceptable time",
+      "file": "tests/performance.spec.ts",
+      "reason": "Wall-clock assertion is sensitive to CI runner load. Flake rate ~25 %.",
+      "quarantinedAt": "2026-07-26",
+      "quarantinedBy": "automation",
+      "issueUrl": "",
+      "stabilisationDue": ""
+    }
+  ]
+}

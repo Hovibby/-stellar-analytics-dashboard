@@ -4,3 +4,4 @@ packages:
   - "packages/e2e"
   - "frontend"
   - "shared"
+  - "tools/eslint-rules"

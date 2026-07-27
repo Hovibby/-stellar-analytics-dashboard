@@ -1,0 +1,106 @@
+name: GraphQL Query Linting
+
+# Enforce consistent formatting, naming conventions, and best practices in
+# every gql-tagged query document.  Runs on every PR that touches GraphQL
+# queries, the schema, or the lint configuration itself.
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'packages/frontend/src/graphql/**'
+      - 'packages/api/src/schema/**'
+      - 'packages/frontend/src/graphql/.eslintrc.cjs'
+      - '.github/workflows/graphql-lint.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'packages/frontend/src/graphql/**'
+      - 'packages/api/src/schema/**'
+      - 'packages/frontend/src/graphql/.eslintrc.cjs'
+      - '.github/workflows/graphql-lint.yml'
+
+jobs:
+  graphql-lint:
+    name: Lint GraphQL Documents
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Run the GraphQL-specific lint pass.
+      # @graphql-eslint parses gql-tagged template literals in .ts files and
+      # enforces naming conventions, no-deprecated, require-selections, etc.
+      - name: Lint GraphQL query documents
+        run: pnpm lint:graphql
+        env:
+          CI: true
+
+      # On failure, upload the ESLint SARIF report so GitHub shows annotations
+      # directly on the PR diff.
+      - name: Generate ESLint SARIF report
+        if: failure()
+        run: |
+          pnpm --filter @stellar-analytics/frontend exec \
+            eslint src/graphql --ext .ts,.tsx,.graphql \
+            --format @microsoft/eslint-formatter-sarif \
+            --output-file graphql-lint-results.sarif || true
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: failure()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: graphql-lint-results.sarif
+          category: graphql-eslint
+
+  # Separate job that ONLY checks whether autofix would produce a diff.
+  # If it does, the developer needs to run `pnpm lint:graphql:fix` locally.
+  graphql-format-check:
+    name: GraphQL Format Check (autofix diff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply autofix
+        run: pnpm lint:graphql:fix
+
+      - name: Check for uncommitted formatting changes
+        run: |
+          if ! git diff --quiet; then
+            echo "::error::GraphQL query documents have formatting issues."
+            echo "Run 'pnpm lint:graphql:fix' locally, commit the result, and push again."
+            git diff --stat
+            exit 1
+          fi
+          echo "All GraphQL documents are correctly formatted."

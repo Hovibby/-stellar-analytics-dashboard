@@ -10,6 +10,8 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext ts,tsx --fix",
+    "lint:graphql": "eslint src/graphql --ext .ts,.tsx,.graphql --report-unused-disable-directives --max-warnings 0",
+    "lint:graphql:fix": "eslint src/graphql --ext .ts,.tsx,.graphql --fix",
     "test": "vitest run",
     "test:watch": "vitest",
     "storybook": "storybook dev -p 6006",
@@ -66,6 +68,7 @@
     "tailwindcss": "^3.3.6",
     "typescript": "^5.2.2",
     "vite": "^4.5.0",
-    "vitest": "1"
+    "vitest": "1",
+    "@graphql-eslint/eslint-plugin": "^3.20.1"
   }
 }
