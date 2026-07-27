@@ -1,20 +1,21 @@
-import "dotenv/config";
-import http from "http";
-import { Pool } from "pg";
-import { Horizon } from "@stellar/stellar-sdk";
-import { STELLAR_NETWORKS, type StellarNetwork } from "@stellar-analytics/shared";
-import { pollLatestLedger } from "./ingester.js";
+import 'dotenv/config';
+import http from 'http';
+import { Pool } from 'pg';
+import { Horizon } from '@stellar/stellar-sdk';
+import { STELLAR_NETWORKS, type StellarNetwork } from '@stellar-analytics/shared';
+import { pollLatestLedger } from './ingester.js';
 import {
   normalizeLedger,
   normalizeTransactions,
   normalizeOperations,
   normalizePayments,
-} from "./transformer.js";
-import { writeIngestedData, type BatchMetrics } from "./loader.js";
-import { broadcastRealtimeUpdate } from "./websocket.js";
-import { validateConfig, type StellarNetwork } from "./config.js";
-import { indexerLogger } from "./logger.js";
-import { initializeAlertService, alertService } from "./alerting/index.js";
+} from './transformer.js';
+import { writeIngestedData, type BatchMetrics } from './loader.js';
+import { broadcastRealtimeUpdate } from './websocket.js';
+import { validateConfig, type StellarNetwork } from './config.js';
+import { indexerLogger } from './logger.js';
+import { initializeAlertService, alertService } from './alerting/index.js';
+import { registry } from './metrics.js';
 
 // ---------------------------------------------------------------------------
 // Validate configuration on startup – fails fast with clear error messages
@@ -24,15 +25,13 @@ const config = validateConfig();
 // Initialize alerting service (Issue #143)
 initializeAlertService(config.alerting);
 
-const pool = config.databaseUrl
-  ? new Pool({ connectionString: config.databaseUrl })
-  : null;
+const pool = config.databaseUrl ? new Pool({ connectionString: config.databaseUrl }) : null;
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const network: StellarNetwork = config.network;
 const POLL_INTERVAL_MS = config.pollIntervalMs;
-const BATCH_PERF_WARN_MS = parseInt(process.env.BATCH_PERF_WARN_MS ?? "2000", 10);
+const BATCH_PERF_WARN_MS = parseInt(process.env.BATCH_PERF_WARN_MS ?? '2000', 10);
 
 // ── State tracking (for health check — issue #42) ─────────────────────────────
 
@@ -76,11 +75,11 @@ async function checkDatabaseHealth(): Promise<{
   latencyMs?: number;
   error?: string;
 }> {
-  if (!pool) return { ok: false, error: "no pool configured" };
+  if (!pool) return { ok: false, error: 'no pool configured' };
   const start = Date.now();
   try {
     const client = await pool.connect();
-    await client.query("SELECT 1");
+    await client.query('SELECT 1');
     client.release();
     state.lastDatabaseErrorAlertAt = null; // Reset alert tracking on success
     return { ok: true, latencyMs: Date.now() - start };
@@ -92,7 +91,7 @@ async function checkDatabaseHealth(): Promise<{
       state.lastDatabaseErrorAlertAt &&
       now.getTime() - state.lastDatabaseErrorAlertAt.getTime() > 5 * 60 * 1000 // 5 minute cooldown
     ) {
-      await alertService.alertDatabaseError(err, "health check failed");
+      await alertService.alertDatabaseError(err, 'health check failed');
       state.lastDatabaseErrorAlertAt = now;
     }
     return { ok: false, error: err?.message ?? String(err) };
@@ -109,7 +108,7 @@ async function checkHorizonHealth(): Promise<{
   const server = new Horizon.Server(horizonConfig.horizonUrl);
   const start = Date.now();
   try {
-    const ledgers = await server.ledgers().order("desc").limit(1).call();
+    const ledgers = await server.ledgers().order('desc').limit(1).call();
     const seq: number = ledgers.records[0]?.sequence ?? 0;
     state.latestHorizonLedger = seq;
     state.lastHorizonErrorAlertAt = null; // Reset alert tracking on success
@@ -122,7 +121,7 @@ async function checkHorizonHealth(): Promise<{
       state.lastHorizonErrorAlertAt &&
       now.getTime() - state.lastHorizonErrorAlertAt.getTime() > 5 * 60 * 1000 // 5 minute cooldown
     ) {
-      await alertService.alertCircuitBreakerOpen("Horizon API", err?.message ?? String(err));
+      await alertService.alertCircuitBreakerOpen('Horizon API', err?.message ?? String(err));
       state.lastHorizonErrorAlertAt = now;
     }
     return { ok: false, error: err?.message ?? String(err) };
@@ -130,10 +129,7 @@ async function checkHorizonHealth(): Promise<{
 }
 
 function computeProcessingLag(): number | null {
-  if (
-    state.latestHorizonLedger === null ||
-    state.lastProcessedLedger === null
-  ) {
+  if (state.latestHorizonLedger === null || state.lastProcessedLedger === null) {
     return null;
   }
   return state.latestHorizonLedger - state.lastProcessedLedger;
@@ -141,9 +137,7 @@ function computeProcessingLag(): number | null {
 
 function computeErrorRate(): number {
   if (state.cycleCount === 0) return 0;
-  return parseFloat(
-    ((state.errorCount / state.cycleCount) * 100).toFixed(2)
-  );
+  return parseFloat(((state.errorCount / state.cycleCount) * 100).toFixed(2));
 }
 
 // ── Polling cycle ─────────────────────────────────────────────────────────────
@@ -207,11 +201,7 @@ async function runCycle(): Promise<void> {
         !state.lastHighErrorRateAlertAt ||
         now.getTime() - state.lastHighErrorRateAlertAt.getTime() > 10 * 60 * 1000 // 10 minute cooldown
       ) {
-        await alertService.alertHighErrorRate(
-          errorRate,
-          state.cycleCount,
-          state.errorCount
-        );
+        await alertService.alertHighErrorRate(errorRate, state.cycleCount, state.errorCount);
         state.lastHighErrorRateAlertAt = now;
       }
     }
@@ -219,7 +209,7 @@ async function runCycle(): Promise<void> {
     state.errorCount++;
     state.lastError = error?.message ?? String(error);
     state.lastErrorAt = new Date();
-    console.error("[indexer] cycle error:", error);
+    console.error('[indexer] cycle error:', error);
 
     // Alert on cycle error (Issue #143)
     if (alertService) {
@@ -234,7 +224,7 @@ async function runCycle(): Promise<void> {
 // ── Health check server (issue #42) ──────────────────────────────────────────
 
 async function buildHealthResponse(): Promise<{
-  status: "ok" | "degraded" | "error";
+  status: 'ok' | 'degraded' | 'error';
   checks: Record<string, any>;
   metrics: Record<string, any>;
 }> {
@@ -247,13 +237,13 @@ async function buildHealthResponse(): Promise<{
   const errorRate = computeErrorRate();
 
   // Determine overall status
-  let status: "ok" | "degraded" | "error" = "ok";
+  let status: 'ok' | 'degraded' | 'error' = 'ok';
   if (!dbHealth.ok || !horizonHealth.ok) {
-    status = "error";
+    status = 'error';
   } else if (lag !== null && lag > 10) {
-    status = "degraded";
+    status = 'degraded';
   } else if (errorRate > 10) {
-    status = "degraded";
+    status = 'degraded';
   }
 
   return {
@@ -297,20 +287,20 @@ async function buildHealthResponse(): Promise<{
 
 function createHealthServer(): http.Server {
   const server = http.createServer(async (req, res) => {
-    if (req.url === "/health") {
+    if (req.url === '/health') {
       try {
         const health = await buildHealthResponse();
-        const statusCode = health.status === "error" ? 503 : 200;
-        res.writeHead(statusCode, { "Content-Type": "application/json" });
+        const statusCode = health.status === 'error' ? 503 : 200;
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(health, null, 2));
       } catch (err) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "error", error: String(err) }));
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'error', error: String(err) }));
       }
-    } else if (req.url === "/ready") {
+    } else if (req.url === '/ready') {
       // Lightweight readiness probe — just checks if we've processed at least one ledger
       const ready = state.lastProcessedLedger !== null;
-      res.writeHead(ready ? 200 : 503, { "Content-Type": "application/json" });
+      res.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
           ready,
@@ -345,23 +335,21 @@ async function shutdown(signal: string): Promise<void> {
   if (pollingTimer !== null) {
     clearInterval(pollingTimer);
     pollingTimer = null;
-    console.log("[indexer] polling loop stopped");
+    console.log('[indexer] polling loop stopped');
   }
 
   // 2. Save checkpoint (last processed ledger)
   if (state.lastProcessedLedger !== null) {
-    console.log(
-      `[indexer] checkpoint: last processed ledger = ${state.lastProcessedLedger}`
-    );
+    console.log(`[indexer] checkpoint: last processed ledger = ${state.lastProcessedLedger}`);
   }
 
   // 3. Close database pool
   if (pool) {
     try {
       await pool.end();
-      console.log("[indexer] database pool closed");
+      console.log('[indexer] database pool closed');
     } catch (err) {
-      console.error("[indexer] error closing database pool:", err);
+      console.error('[indexer] error closing database pool:', err);
     }
   }
 
@@ -369,13 +357,13 @@ async function shutdown(signal: string): Promise<void> {
   if (healthServer) {
     await new Promise<void>((resolve) => {
       healthServer!.close(() => {
-        console.log("[indexer] health check server closed");
+        console.log('[indexer] health check server closed');
         resolve();
       });
     });
   }
 
-  console.log("[indexer] shutdown complete");
+  console.log('[indexer] shutdown complete');
   process.exit(0);
 }
 
@@ -385,19 +373,20 @@ async function main(): Promise<void> {
   console.log(`[indexer] starting on ${String(network)}`);
 
   // Register graceful shutdown handlers (issue #48)
-  process.on("SIGTERM", () => shutdown("SIGTERM").catch(console.error));
-  process.on("SIGINT", () => shutdown("SIGINT").catch(console.error));
-  process.on("uncaughtException", (err) => {
-    console.error("[indexer] uncaught exception:", err);
-    shutdown("uncaughtException").catch(() => process.exit(1));
+  process.on('SIGTERM', () => shutdown('SIGTERM').catch(console.error));
+  process.on('SIGINT', () => shutdown('SIGINT').catch(console.error));
+  process.on('uncaughtException', (err) => {
+    console.error('[indexer] uncaught exception:', err);
+    shutdown('uncaughtException').catch(() => process.exit(1));
   });
 
   // Start enhanced health check server (issue #42)
   healthServer = createHealthServer();
   healthServer.listen(3001, () => {
-    console.log("[indexer] health check server listening on port 3001");
-    console.log("[indexer]   GET /health  — full health report");
-    console.log("[indexer]   GET /ready   — readiness probe");
+    console.log('[indexer] health check server listening on port 3001');
+    console.log('[indexer]   GET /health  — full health report');
+    console.log('[indexer]   GET /ready   — readiness probe');
+    console.log('[indexer]   GET /metrics — prometheus metrics');
   });
 
   // Initial run
@@ -410,6 +399,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: any) => {
-  indexerLogger.fatal({ error: error?.message ?? String(error) }, "Fatal error");
+  indexerLogger.fatal({ error: error?.message ?? String(error) }, 'Fatal error');
   process.exit(1);
 });
