@@ -75,5 +75,15 @@
     "autoRefresh": "30秒ごとに自動更新",
     "updating": "更新中…",
     "refreshChart": "チャートを更新"
+  },
+  "freshness": {
+    "justNow": "たった今",
+    "minutesAgo": "{{count}}分前",
+    "minutesAgo_plural": "{{count}}分前",
+    "hoursAgo": "{{count}}時間前",
+    "hoursAgo_plural": "{{count}}時間前",
+    "daysAgo": "{{count}}日前",
+    "daysAgo_plural": "{{count}}日前",
+    "lastUpdated": "最終更新"
   }
 }

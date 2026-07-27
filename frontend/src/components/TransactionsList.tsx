@@ -3,9 +3,12 @@
  *
  * Displays a paginated list of transactions using cursor-based pagination
  * from the GraphQL API.
+ * Includes data freshness indicator (issue #242).
  */
 import { useQuery } from '@apollo/client';
 import { TRANSACTIONS_QUERY } from '../graphql/queries';
+import { useDataFreshness } from '../hooks/useDataFreshness';
+import { DataFreshnessIndicator } from './DataFreshnessIndicator';
 import { Pagination, PageInfo } from './Pagination';
 import { TableRowSkeleton } from './Skeleton';
 import { useState } from 'react';
@@ -35,6 +38,7 @@ interface TransactionsData {
 
 export function TransactionsList() {
   const { t, i18n } = useTranslation();
+  const { data: freshnessData } = useDataFreshness();
   const [pageSize, setPageSize] = useState(25);
   const [after, setAfter] = useState<string | null>(null);
   const [previousCursors, setPreviousCursors] = useState<string[]>([]);
@@ -109,9 +113,21 @@ export function TransactionsList() {
 
   return (
     <section className="card">
-      <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700 }}>
-        {t('transactions.title')}
-      </h3>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '16px',
+        }}
+      >
+        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>
+          {t('transactions.title')}
+        </h3>
+        <DataFreshnessIndicator
+          lastUpdated={freshnessData?.transactionsLastUpdated || null}
+        />
+      </div>
 
       {transactions.length === 0 ? (
         <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)' }}>

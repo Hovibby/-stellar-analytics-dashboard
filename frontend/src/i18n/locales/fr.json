@@ -75,5 +75,15 @@
     "autoRefresh": "actualisation automatique toutes les 30s",
     "updating": "Mise à jour…",
     "refreshChart": "Actualiser le graphique"
+  },
+  "freshness": {
+    "justNow": "À l'instant",
+    "minutesAgo": "il y a {{count}} minute",
+    "minutesAgo_plural": "il y a {{count}} minutes",
+    "hoursAgo": "il y a {{count}} heure",
+    "hoursAgo_plural": "il y a {{count}} heures",
+    "daysAgo": "il y a {{count}} jour",
+    "daysAgo_plural": "il y a {{count}} jours",
+    "lastUpdated": "Dernière mise à jour"
   }
 }

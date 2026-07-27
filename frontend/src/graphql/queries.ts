@@ -82,3 +82,14 @@ export const NETWORK_METRICS_QUERY = gql`
     }
   }
 `;
+
+export const DATA_FRESHNESS_QUERY = gql`
+  query GetDataFreshness {
+    dataFreshness {
+      ledgersLastUpdated
+      transactionsLastUpdated
+      operationsLastUpdated
+      dashboardLastUpdated
+    }
+  }
+`;

@@ -59,6 +59,13 @@ export const typeDefs = /* GraphQL */ `
     totalLedgers: Int!
   }
 
+  type DataFreshness {
+    ledgersLastUpdated: String!
+    transactionsLastUpdated: String!
+    operationsLastUpdated: String!
+    dashboardLastUpdated: String!
+  }
+
   type AssetVolume {
     assetCode: String!
     volume: String!
@@ -87,6 +94,9 @@ export const typeDefs = /* GraphQL */ `
     
     # Aggregation helpers
     dailyTransactionCount(days: Int): [DailyCount!]!
+    
+    # Data freshness
+    dataFreshness: DataFreshness!
   }
 
   type DailyCount {
