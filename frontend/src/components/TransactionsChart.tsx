@@ -8,6 +8,7 @@
 import { useQuery } from '@apollo/client';
 import { NETWORK_METRICS_QUERY } from '../graphql/queries';
 import { ExportControls } from './ExportControls';
+import { ChartSkeleton } from './Skeleton';
 import { useTranslation } from 'react-i18next';
 
 interface MetricPoint {
@@ -59,17 +60,7 @@ export function TransactionsChart() {
         >
           {t('chart.transactionVolume24h')}
         </h3>
-        <div
-          style={{
-            height: '120px',
-            background:
-              'linear-gradient(90deg, var(--color-skeleton-start) 25%, var(--color-skeleton-end) 50%, var(--color-skeleton-start) 75%)',
-            backgroundSize: '200% 100%',
-            animation: 'shimmer 1.5s infinite',
-            borderRadius: '8px',
-          }}
-        />
-        <style>{`@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
+        <ChartSkeleton height="120px" />
       </section>
     );
   }
