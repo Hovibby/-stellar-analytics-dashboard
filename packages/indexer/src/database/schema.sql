@@ -163,6 +163,35 @@ CREATE TABLE IF NOT EXISTS asset_metrics (
     UNIQUE(asset_id, timestamp)
 );
 
+-- ============================================================================
+-- Account events table
+-- Tracks discrete account-level state changes captured from Stellar network
+-- operations for downstream analytics, audit, and notification consumers.
+-- Created by migration 1738400000000_add-account-events-table
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS account_events (
+    id              VARCHAR(72)   PRIMARY KEY,
+    account_id      VARCHAR(56)   NOT NULL,
+    type            VARCHAR(40)   NOT NULL,
+    ledger_sequence INTEGER       NOT NULL,
+    transaction_hash VARCHAR(64)  NOT NULL,
+    created_at      TIMESTAMP WITH TIME ZONE NOT NULL,
+    previous_value  JSONB,
+    new_value       JSONB,
+    details         JSONB,
+    row_created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_events_account_created
+    ON account_events (account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_account_events_type_created
+    ON account_events (type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_account_events_ledger
+    ON account_events (ledger_sequence);
+CREATE INDEX IF NOT EXISTS idx_account_events_created_at
+    ON account_events (created_at DESC);
+
 -- Account metrics table
 CREATE TABLE IF NOT EXISTS account_metrics (
     id SERIAL PRIMARY KEY,
