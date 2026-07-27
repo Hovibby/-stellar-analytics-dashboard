@@ -7,6 +7,16 @@ import { ValidationService } from '../services/validation';
 import { withResolverLogging, NotFoundError } from '../utils/resolver-error';
 import { createConnection } from '../utils/pagination';
 import { buildCacheKey, cachedQuery } from '../database/cached-query';
+import { buildOrderByClause, OrderByClause } from '../utils/sorting';
+
+const LEDGER_SORT_FIELDS = new Map<string, string>([
+  ['sequence', 'sequence'],
+  ['closedAt', 'closed_at'],
+  ['successfulTransactionCount', 'successful_transaction_count'],
+  ['failedTransactionCount', 'failed_transaction_count'],
+  ['operationCount', 'operation_count'],
+  ['createdAt', 'created_at'],
+]);
 
 export const ledgerResolvers = {
   Query: {
@@ -17,6 +27,7 @@ export const ledgerResolvers = {
         args: {
           pagination?: PaginationArgs;
           timeRange?: { startTime?: string; endTime?: string };
+          orderBy?: OrderByClause[];
         },
         context: any,
         info: GraphQLResolveInfo
@@ -24,7 +35,17 @@ export const ledgerResolvers = {
         ValidationService.validatePagination(args.pagination || {});
         const { startTime, endTime } = args.timeRange || {};
 
-        const cacheKey = buildCacheKey('ledgers', { startTime, endTime });
+        const orderByClause = buildOrderByClause(
+          args.orderBy,
+          LEDGER_SORT_FIELDS,
+          'ORDER BY sequence DESC'
+        );
+
+        const cacheKey = buildCacheKey('ledgers', {
+          startTime,
+          endTime,
+          orderBy: args.orderBy,
+        });
 
         const ledgers = await cachedQuery(cacheKey, CACHE_TTL.LEDGER_DATA, async () => {
           let whereClause = 'WHERE 1=1';
@@ -48,7 +69,7 @@ export const ledgerResolvers = {
               max_tx_set_size, protocol_version, header_xdr, created_at, updated_at
             FROM ledgers 
             ${whereClause}
-            ORDER BY sequence DESC
+            ${orderByClause}
           `;
 
           return db.query(query, params);
@@ -70,7 +91,6 @@ export const ledgerResolvers = {
       ) => {
         const cacheKey = `ledger:${args.sequence}`;
 
-        // Try cache first
         const cached = await db.cacheGet(cacheKey);
         if (cached) {
           return cached;
@@ -94,7 +114,6 @@ export const ledgerResolvers = {
           ...mapLedger(ledgerData),
         };
 
-        // Cache the result
         await db.cacheSet(cacheKey, result, CACHE_TTL.LEDGER_DATA);
         return result;
       }

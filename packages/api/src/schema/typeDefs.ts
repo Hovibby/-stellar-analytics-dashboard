@@ -240,6 +240,18 @@ export const typeDefs = gql`
     signers: Int!
   }
 
+  # ── Sorting ────────────────────────────────────────────────────────────────
+
+  enum SortDirection {
+    ASC
+    DESC
+  }
+
+  input OrderByInput {
+    field: String!
+    direction: SortDirection = DESC
+  }
+
   # ── Filter / pagination inputs ─────────────────────────────────────────────
 
   """
@@ -290,7 +302,11 @@ export const typeDefs = gql`
 
   type Query {
     # Ledger queries — cursor-based pagination via LedgerConnection
-    ledgers(pagination: PaginationInput, timeRange: TimeRangeInput): LedgerConnection!
+    ledgers(
+      pagination: PaginationInput
+      timeRange: TimeRangeInput
+      orderBy: [OrderByInput!]
+    ): LedgerConnection!
 
     ledger(sequence: Int!): Ledger
 
@@ -299,6 +315,7 @@ export const typeDefs = gql`
       pagination: PaginationInput
       timeRange: TimeRangeInput
       filter: TransactionFilterInput
+      orderBy: [OrderByInput!]
     ): TransactionConnection!
 
     transaction(hash: String!): Transaction
@@ -308,17 +325,26 @@ export const typeDefs = gql`
       pagination: PaginationInput
       timeRange: TimeRangeInput
       filter: OperationFilterInput
+      orderBy: [OrderByInput!]
     ): OperationConnection!
 
     operation(id: String!): Operation
 
     # Account queries — cursor-based pagination via AccountConnection
-    accounts(pagination: PaginationInput, filter: AccountFilterInput): AccountConnection!
+    accounts(
+      pagination: PaginationInput
+      filter: AccountFilterInput
+      orderBy: [OrderByInput!]
+    ): AccountConnection!
 
     account(accountId: String!): Account
 
     # Asset queries — cursor-based pagination via AssetConnection
-    assets(pagination: PaginationInput, filter: AssetFilterInput): AssetConnection!
+    assets(
+      pagination: PaginationInput
+      filter: AssetFilterInput
+      orderBy: [OrderByInput!]
+    ): AssetConnection!
 
     asset(assetType: String!, assetCode: String, assetIssuer: String): Asset
 
@@ -329,16 +355,26 @@ export const typeDefs = gql`
       pagination: PaginationInput
       filter: AssetFilterInput
       timeRange: TimeRangeInput
+      orderBy: [OrderByInput!]
     ): AssetMetricsConnection!
 
     accountMetrics(
       pagination: PaginationInput
       accountId: String!
       timeRange: TimeRangeInput
+      orderBy: [OrderByInput!]
     ): AccountMetricsConnection!
 
     # Aggregated network statistics
     stats: NetworkStats!
+
+    # Bulk data export (REST-style query for CSV/JSON export)
+    exportData(
+      entityType: String!
+      filter: TransactionFilterInput
+      timeRange: TimeRangeInput
+      format: String = "json"
+    ): String
   }
 
   type NetworkStats {

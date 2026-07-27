@@ -13,6 +13,7 @@ import { useDashboardData } from '../hooks/useDashboardData';
 import { statsToArray } from '../utils/exportUtils';
 import { LedgersList } from '../components/LedgersList';
 import { TransactionsList } from '../components/TransactionsList';
+import { CardSkeleton } from '../components/Skeleton';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -26,17 +27,7 @@ export function DashboardPage() {
     return (
       <main className="app">
         <h1>{t('app.title')}</h1>
-        <div className="grid">
-          {[0, 1, 2, 3].map((i) => (
-            <article key={i} className="card skeleton" aria-busy="true">
-              <div
-                className="skeleton-line"
-                style={{ width: '60%', height: '14px', marginBottom: '8px' }}
-              />
-              <div className="skeleton-line" style={{ width: '40%', height: '28px' }} />
-            </article>
-          ))}
-        </div>
+        <CardSkeleton count={8} />
       </main>
     );
   }

@@ -7,10 +7,20 @@ import { withResolverLogging, NotFoundError } from '../utils/resolver-error';
 import { createConnection, PaginationArgs } from '../utils/pagination';
 import { buildCacheKey, cachedQuery } from '../database/cached-query';
 import { Connection } from '@stellar-analytics/shared';
+import { buildOrderByClause, OrderByClause } from '../utils/sorting';
 
 export interface ResolverContext {
   loaders: ApiLoaders;
 }
+
+const TRANSACTION_SORT_FIELDS = new Map<string, string>([
+  ['createdAt', 'created_at'],
+  ['feeCharged', 'fee_charged'],
+  ['maxFee', 'max_fee'],
+  ['operationCount', 'operation_count'],
+  ['ledger', 'ledger_sequence'],
+  ['successful', 'successful'],
+]);
 
 export const transactionResolvers = {
   Query: {
@@ -28,6 +38,7 @@ export const transactionResolvers = {
             hasMemo?: boolean;
             memoType?: string;
           };
+          orderBy?: OrderByClause[];
         },
         context: ResolverContext,
         _info: GraphQLResolveInfo
@@ -43,6 +54,12 @@ export const transactionResolvers = {
         const { startTime, endTime } = args.timeRange || {};
         const { successful, minFee, maxFee, hasMemo, memoType } = args.filter || {};
 
+        const orderByClause = buildOrderByClause(
+          args.orderBy,
+          TRANSACTION_SORT_FIELDS,
+          'ORDER BY created_at DESC'
+        );
+
         const cacheKey = buildCacheKey('transactions', {
           startTime,
           endTime,
@@ -51,6 +68,7 @@ export const transactionResolvers = {
           maxFee,
           hasMemo,
           memoType,
+          orderBy: args.orderBy,
         });
 
         const transactions = await cachedQuery(cacheKey, CACHE_TTL.LEDGER_DATA, async () => {
@@ -96,7 +114,7 @@ export const transactionResolvers = {
               fee_bump_transaction, inner_transaction_hash, inner_transaction_signatures
             FROM transactions 
             ${whereClause}
-            ORDER BY created_at DESC
+            ${orderByClause}
           `;
 
           return db.query(query, params);
@@ -118,7 +136,6 @@ export const transactionResolvers = {
       ) => {
         const cacheKey = `transaction:${args.hash}`;
 
-        // Try cache first
         const cached = await db.cacheGet(cacheKey);
         if (cached) {
           await db.incrementCacheMetric('transaction');
@@ -161,7 +178,6 @@ export const transactionResolvers = {
           innerTransactionSignatures: transaction.inner_transaction_signatures,
         };
 
-        // Cache the result
         await db.cacheSet(cacheKey, result, CACHE_TTL.LEDGER_DATA);
         await db.incrementCacheMetric('transaction');
         return result;

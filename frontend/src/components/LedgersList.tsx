@@ -7,6 +7,7 @@
 import { useQuery } from '@apollo/client';
 import { LEDGERS_QUERY } from '../graphql/queries';
 import { Pagination, PageInfo } from './Pagination';
+import { TableRowSkeleton } from './Skeleton';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -80,19 +81,7 @@ export function LedgersList() {
         <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700 }}>
           {t('ledgers.title')}
         </h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              style={{
-                padding: '12px',
-                background: 'var(--color-skeleton)',
-                borderRadius: '8px',
-                height: '80px',
-              }}
-            />
-          ))}
-        </div>
+        <TableRowSkeleton count={5} columns={5} />
       </section>
     );
   }

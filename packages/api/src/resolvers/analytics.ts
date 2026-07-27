@@ -1,4 +1,4 @@
-import { GraphQLResolveInfo } from 'graphql';
+import { GraphQLResolveInfo, GraphQLError } from 'graphql';
 import { db, CACHE_TTL } from '../database/connection';
 import { buildCacheKey, cachedQuery } from '../database/cached-query';
 import { getStatsSummary } from '../services/stats-service';
@@ -6,10 +6,33 @@ import { ValidationService } from '../services/validation';
 import { withResolverLogging } from '../utils/resolver-error';
 import { createConnection, PaginationArgs } from '../utils/pagination';
 import { Connection } from '@stellar-analytics/shared';
+import { buildOrderByClause, OrderByClause } from '../utils/sorting';
 
 const NETWORK_METRICS_CACHE_TTL_SECONDS = Number(
   process.env.NETWORK_METRICS_CACHE_TTL_SECONDS ?? 30
 );
+
+const OPERATION_SORT_FIELDS = new Map<string, string>([
+  ['createdAt', 'created_at'],
+  ['type', 'type'],
+  ['ledger', 'ledger_sequence'],
+  ['operationIndex', 'operation_index'],
+]);
+
+const ASSET_METRICS_SORT_FIELDS = new Map<string, string>([
+  ['volume24h', 'volume_24h'],
+  ['trades24h', 'trades_24h'],
+  ['holders', 'holders'],
+  ['priceChange24h', 'price_change_24h'],
+]);
+
+const ACCOUNT_METRICS_SORT_FIELDS = new Map<string, string>([
+  ['balanceNative', 'balance_native'],
+  ['transactionCount24h', 'transaction_count_24h'],
+  ['transactionCount7d', 'transaction_count_7d'],
+  ['transactionCount30d', 'transaction_count_30d'],
+  ['lastTransaction', 'last_transaction'],
+]);
 
 export const analyticsResolvers = {
   Query: {
@@ -71,6 +94,434 @@ export const analyticsResolvers = {
       }
     ),
 
+    operations: withResolverLogging(
+      'Query.operations',
+      async (
+        parent: unknown,
+        args: {
+          pagination?: PaginationArgs;
+          timeRange?: { startTime?: string; endTime?: string };
+          filter?: {
+            type?: string;
+            successful?: boolean;
+            sourceAccount?: string;
+          };
+          orderBy?: OrderByClause[];
+        },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ): Promise<Connection<any>> => {
+        if (args.pagination) {
+          ValidationService.validatePagination(args.pagination);
+        }
+        if (args.timeRange) {
+          ValidationService.validateTimeRange(args.timeRange);
+        }
+        if (args.filter) {
+          ValidationService.validateOperationFilter(args.filter);
+        }
+
+        const { startTime, endTime } = args.timeRange || {};
+        const { type, successful, sourceAccount } = args.filter || {};
+
+        const orderByClause = buildOrderByClause(
+          args.orderBy,
+          OPERATION_SORT_FIELDS,
+          'ORDER BY created_at DESC'
+        );
+
+        const cacheKey = buildCacheKey('operations', {
+          startTime,
+          endTime,
+          type,
+          successful,
+          sourceAccount,
+          orderBy: args.orderBy,
+        });
+
+        const operations = await cachedQuery(cacheKey, CACHE_TTL.LEDGER_DATA, async () => {
+          let whereClause = 'WHERE 1=1';
+          const params: unknown[] = [];
+          let paramIndex = 1;
+
+          if (startTime) {
+            whereClause += ` AND created_at >= $${paramIndex++}`;
+            params.push(startTime);
+          }
+          if (endTime) {
+            whereClause += ` AND created_at <= $${paramIndex++}`;
+            params.push(endTime);
+          }
+          if (type) {
+            whereClause += ` AND type = $${paramIndex++}`;
+            params.push(type);
+          }
+          if (successful !== undefined) {
+            whereClause += ` AND transaction_successful = $${paramIndex++}`;
+            params.push(successful);
+          }
+          if (sourceAccount) {
+            whereClause += ` AND source_account = $${paramIndex++}`;
+            params.push(sourceAccount);
+          }
+
+          const query = `
+            SELECT 
+              id, paging_token, transaction_hash, transaction_successful,
+              type, created_at, source_account, ledger_sequence, operation_index, details
+            FROM operations 
+            ${whereClause}
+            ${orderByClause}
+          `;
+
+          return db.query(query, params);
+        });
+
+        const result = operations.map((op) => ({
+          id: op.id,
+          pagingToken: op.paging_token,
+          transactionHash: op.transaction_hash,
+          transactionSuccessful: op.transaction_successful,
+          type: op.type,
+          createdAt: op.created_at,
+          sourceAccount: op.source_account,
+          ledger: op.ledger_sequence,
+          operationIndex: op.operation_index,
+          details: op.details,
+        }));
+
+        return createConnection(result, args.pagination || {}, (item) => item.pagingToken);
+      }
+    ),
+
+    operation: withResolverLogging(
+      'Query.operation',
+      async (
+        parent: unknown,
+        args: { id: string },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ) => {
+        const operation = await db.queryOne(
+          `SELECT 
+            id, paging_token, transaction_hash, transaction_successful,
+            type, created_at, source_account, ledger_sequence, operation_index, details
+          FROM operations WHERE id = $1`,
+          [args.id]
+        );
+
+        if (!operation) {
+          throw new GraphQLError(`Operation ${args.id} not found`, {
+            extensions: { code: 'NOT_FOUND' },
+          });
+        }
+
+        return {
+          id: operation.id,
+          pagingToken: operation.paging_token,
+          transactionHash: operation.transaction_hash,
+          transactionSuccessful: operation.transaction_successful,
+          type: operation.type,
+          createdAt: operation.created_at,
+          sourceAccount: operation.source_account,
+          ledger: operation.ledger_sequence,
+          operationIndex: operation.operation_index,
+          details: operation.details,
+        };
+      }
+    ),
+
+    accounts: withResolverLogging(
+      'Query.accounts',
+      async (
+        parent: unknown,
+        args: {
+          pagination?: PaginationArgs;
+          filter?: {
+            accountId?: string;
+            minBalance?: string;
+            maxBalance?: string;
+            isActive?: boolean;
+          };
+          orderBy?: OrderByClause[];
+        },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ): Promise<Connection<any>> => {
+        if (args.pagination) {
+          ValidationService.validatePagination(args.pagination);
+        }
+        if (args.filter) {
+          ValidationService.validateAccountFilter(args.filter);
+        }
+
+        const { accountId, minBalance, maxBalance, isActive } = args.filter || {};
+
+        const cacheKey = buildCacheKey('accounts', {
+          accountId,
+          minBalance,
+          maxBalance,
+          isActive,
+          orderBy: args.orderBy,
+        });
+
+        const accounts = await cachedQuery(cacheKey, CACHE_TTL.ACCOUNT_STATS, async () => {
+          let whereClause = 'WHERE 1=1';
+          const params: unknown[] = [];
+          let paramIndex = 1;
+
+          if (accountId) {
+            whereClause += ` AND account_id = $${paramIndex++}`;
+            params.push(accountId);
+          }
+          if (minBalance) {
+            whereClause += ` AND CAST(balance AS NUMERIC) >= $${paramIndex++}`;
+            params.push(minBalance);
+          }
+          if (maxBalance) {
+            whereClause += ` AND CAST(balance AS NUMERIC) <= $${paramIndex++}`;
+            params.push(maxBalance);
+          }
+          if (isActive !== undefined) {
+            whereClause += ` AND is_active = $${paramIndex++}`;
+            params.push(isActive);
+          }
+
+          const orderByClause = buildOrderByClause(
+            args.orderBy,
+            new Map<string, string>([
+              ['accountId', 'account_id'],
+              ['balance', 'balance'],
+              ['createdAt', 'created_at'],
+              ['updatedAt', 'updated_at'],
+            ]),
+            'ORDER BY created_at DESC'
+          );
+
+          const query = `
+            SELECT 
+              account_id, balance, asset_type, asset_code, asset_issuer,
+              buying_liabilities, selling_liabilities, last_modified_ledger,
+              is_authorized, is_authorized_to_maintain_liabilities,
+              is_clawback_enabled, sequence_number, num_subentries,
+              thresholds, flags, signers, data, sponsor, num_sponsored,
+              num_sponsoring, created_at, updated_at
+            FROM accounts 
+            ${whereClause}
+            ${orderByClause}
+          `;
+
+          return db.query(query, params);
+        });
+
+        const result = accounts.map((acc) => ({
+          accountId: acc.account_id,
+          balance: acc.balance,
+          assetType: acc.asset_type,
+          assetCode: acc.asset_code,
+          assetIssuer: acc.asset_issuer,
+          buyingLiabilities: acc.buying_liabilities,
+          sellingLiabilities: acc.selling_liabilities,
+          lastModifiedLedger: acc.last_modified_ledger,
+          isAuthorized: acc.is_authorized,
+          isAuthorizedToMaintainLiabilities: acc.is_authorized_to_maintain_liabilities,
+          isClawbackEnabled: acc.is_clawback_enabled,
+          sequenceNumber: acc.sequence_number,
+          numSubentries: acc.num_subentries,
+          thresholds: acc.thresholds,
+          flags: acc.flags,
+          signers: acc.signers,
+          data: acc.data,
+          sponsor: acc.sponsor,
+          numSponsored: acc.num_sponsored,
+          numSponsoring: acc.num_sponsoring,
+          createdAt: acc.created_at,
+          updatedAt: acc.updated_at,
+        }));
+
+        return createConnection(result, args.pagination || {}, (item) => item.accountId);
+      }
+    ),
+
+    account: withResolverLogging(
+      'Query.account',
+      async (
+        parent: unknown,
+        args: { accountId: string },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ) => {
+        ValidationService.validateAddress(args.accountId);
+
+        const account = await db.queryOne(
+          `SELECT 
+            account_id, balance, asset_type, asset_code, asset_issuer,
+            buying_liabilities, selling_liabilities, last_modified_ledger,
+            is_authorized, is_authorized_to_maintain_liabilities,
+            is_clawback_enabled, sequence_number, num_subentries,
+            thresholds, flags, signers, data, sponsor, num_sponsored,
+            num_sponsoring, created_at, updated_at
+          FROM accounts WHERE account_id = $1`,
+          [args.accountId]
+        );
+
+        if (!account) {
+          throw new GraphQLError(`Account ${args.accountId} not found`, {
+            extensions: { code: 'NOT_FOUND' },
+          });
+        }
+
+        return {
+          accountId: account.account_id,
+          balance: account.balance,
+          assetType: account.asset_type,
+          assetCode: account.asset_code,
+          assetIssuer: account.asset_issuer,
+          buyingLiabilities: account.buying_liabilities,
+          sellingLiabilities: account.selling_liabilities,
+          lastModifiedLedger: account.last_modified_ledger,
+          isAuthorized: account.is_authorized,
+          isAuthorizedToMaintainLiabilities: account.is_authorized_to_maintain_liabilities,
+          isClawbackEnabled: account.is_clawback_enabled,
+          sequenceNumber: account.sequence_number,
+          numSubentries: account.num_subentries,
+          thresholds: account.thresholds,
+          flags: account.flags,
+          signers: account.signers,
+          data: account.data,
+          sponsor: account.sponsor,
+          numSponsored: account.num_sponsored,
+          numSponsoring: account.num_sponsoring,
+          createdAt: account.created_at,
+          updatedAt: account.updated_at,
+        };
+      }
+    ),
+
+    assets: withResolverLogging(
+      'Query.assets',
+      async (
+        parent: unknown,
+        args: {
+          pagination?: PaginationArgs;
+          filter?: {
+            assetType?: string;
+            assetCode?: string;
+            assetIssuer?: string;
+          };
+          orderBy?: OrderByClause[];
+        },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ): Promise<Connection<any>> => {
+        if (args.pagination) {
+          ValidationService.validatePagination(args.pagination);
+        }
+        if (args.filter) {
+          ValidationService.validateAssetFilter(args.filter);
+        }
+
+        const { assetType, assetCode, assetIssuer } = args.filter || {};
+
+        const cacheKey = buildCacheKey('assets', {
+          assetType,
+          assetCode,
+          assetIssuer,
+          orderBy: args.orderBy,
+        });
+
+        const assets = await cachedQuery(cacheKey, CACHE_TTL.ASSET_DATA, async () => {
+          let whereClause = 'WHERE 1=1';
+          const params: unknown[] = [];
+          let paramIndex = 1;
+
+          if (assetType) {
+            whereClause += ` AND asset_type = $${paramIndex++}`;
+            params.push(assetType);
+          }
+          if (assetCode) {
+            whereClause += ` AND asset_code = $${paramIndex++}`;
+            params.push(assetCode);
+          }
+          if (assetIssuer) {
+            whereClause += ` AND asset_issuer = $${paramIndex++}`;
+            params.push(assetIssuer);
+          }
+
+          const orderByClause = buildOrderByClause(
+            args.orderBy,
+            new Map<string, string>([
+              ['assetType', 'asset_type'],
+              ['assetCode', 'asset_code'],
+              ['assetIssuer', 'asset_issuer'],
+              ['createdAt', 'created_at'],
+            ]),
+            'ORDER BY id'
+          );
+
+          const query = `
+            SELECT id, asset_type, asset_code, asset_issuer, native
+            FROM assets 
+            ${whereClause}
+            ${orderByClause}
+          `;
+
+          return db.query(query, params);
+        });
+
+        const result = assets.map((asset) => ({
+          assetType: asset.asset_type,
+          assetCode: asset.asset_code,
+          assetIssuer: asset.asset_issuer,
+          native: asset.native,
+        }));
+
+        return createConnection(result, args.pagination || {}, (item) => item.assetCode || item.assetType);
+      }
+    ),
+
+    asset: withResolverLogging(
+      'Query.asset',
+      async (
+        parent: unknown,
+        args: { assetType: string; assetCode?: string; assetIssuer?: string },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ) => {
+        let whereClause = 'WHERE asset_type = $1';
+        const params: unknown[] = [args.assetType];
+        let paramIndex = 2;
+
+        if (args.assetCode) {
+          whereClause += ` AND asset_code = $${paramIndex++}`;
+          params.push(args.assetCode);
+        }
+        if (args.assetIssuer) {
+          whereClause += ` AND asset_issuer = $${paramIndex++}`;
+          params.push(args.assetIssuer);
+        }
+
+        const asset = await db.queryOne(
+          `SELECT id, asset_type, asset_code, asset_issuer, native
+          FROM assets ${whereClause}`,
+          params
+        );
+
+        if (!asset) {
+          throw new GraphQLError('Asset not found', {
+            extensions: { code: 'NOT_FOUND' },
+          });
+        }
+
+        return {
+          assetType: asset.asset_type,
+          assetCode: asset.asset_code,
+          assetIssuer: asset.asset_issuer,
+          native: asset.native,
+        };
+      }
+    ),
+
     assetMetrics: withResolverLogging(
       'Query.assetMetrics',
       async (
@@ -83,6 +534,7 @@ export const analyticsResolvers = {
             assetIssuer?: string;
           };
           timeRange?: { startTime?: string; endTime?: string };
+          orderBy?: OrderByClause[];
         },
         _context: unknown,
         _info: GraphQLResolveInfo
@@ -106,6 +558,7 @@ export const analyticsResolvers = {
           assetIssuer,
           startTime,
           endTime,
+          orderBy: args.orderBy,
         });
 
         const assets = await cachedQuery(cacheKey, CACHE_TTL.ASSET_DATA, async () => {
@@ -134,6 +587,12 @@ export const analyticsResolvers = {
             params.push(endTime);
           }
 
+          const orderByClause = buildOrderByClause(
+            args.orderBy,
+            ASSET_METRICS_SORT_FIELDS,
+            'ORDER BY a.id'
+          );
+
           const query = `
             SELECT DISTINCT ON (a.id)
               a.id, a.asset_type, a.asset_code, a.asset_issuer, a.native,
@@ -150,7 +609,7 @@ export const analyticsResolvers = {
               LIMIT 1
             ) am ON TRUE
             ${whereClause}
-            ORDER BY a.id
+            ${orderByClause}
           `;
 
           return db.query(query, params);
@@ -187,6 +646,7 @@ export const analyticsResolvers = {
           pagination?: PaginationArgs;
           accountId: string;
           timeRange?: { startTime?: string; endTime?: string };
+          orderBy?: OrderByClause[];
         },
         _context: unknown,
         _info: GraphQLResolveInfo
@@ -202,7 +662,12 @@ export const analyticsResolvers = {
         const { accountId } = args;
         const { startTime, endTime } = args.timeRange || {};
 
-        const cacheKey = buildCacheKey('account-metrics', { accountId, startTime, endTime });
+        const cacheKey = buildCacheKey('account-metrics', {
+          accountId,
+          startTime,
+          endTime,
+          orderBy: args.orderBy,
+        });
 
         const metrics = await cachedQuery(cacheKey, CACHE_TTL.ACCOUNT_STATS, async () => {
           let whereClause = 'WHERE account_id = $1';
@@ -218,6 +683,12 @@ export const analyticsResolvers = {
             params.push(endTime);
           }
 
+          const orderByClause = buildOrderByClause(
+            args.orderBy,
+            ACCOUNT_METRICS_SORT_FIELDS,
+            'ORDER BY timestamp DESC'
+          );
+
           return db.query(
             `
             SELECT 
@@ -226,7 +697,7 @@ export const analyticsResolvers = {
               first_transaction, last_transaction, is_active, trustlines, signers
             FROM account_metrics 
             ${whereClause}
-            ORDER BY timestamp DESC
+            ${orderByClause}
           `,
             params
           );
@@ -260,6 +731,116 @@ export const analyticsResolvers = {
         return cachedQuery(cacheKey, CACHE_TTL.NETWORK_STATS, async () => {
           return getStatsSummary();
         });
+      }
+    ),
+
+    exportData: withResolverLogging(
+      'Query.exportData',
+      async (
+        parent: unknown,
+        args: {
+          entityType: string;
+          filter?: { successful?: boolean; minFee?: number; maxFee?: number; hasMemo?: boolean; memoType?: string };
+          timeRange?: { startTime?: string; endTime?: string };
+          format?: string;
+        },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ): Promise<string> => {
+        const { entityType, filter, timeRange, format = 'json' } = args;
+
+        if (!['transactions', 'ledgers', 'operations'].includes(entityType)) {
+          throw new GraphQLError(`Unsupported entity type: "${entityType}". Must be transactions, ledgers, or operations.`, {
+            extensions: { code: 'VALIDATION_ERROR' },
+          });
+        }
+
+        if (!['json', 'csv'].includes(format)) {
+          throw new GraphQLError(`Unsupported format: "${format}". Must be json or csv.`, {
+            extensions: { code: 'VALIDATION_ERROR' },
+          });
+        }
+
+        let whereClause = 'WHERE 1=1';
+        const params: unknown[] = [];
+        let paramIndex = 1;
+        const { startTime, endTime } = timeRange || {};
+
+        if (startTime) {
+          whereClause += ` AND created_at >= $${paramIndex++}`;
+          params.push(startTime);
+        }
+        if (endTime) {
+          whereClause += ` AND created_at <= $${paramIndex++}`;
+          params.push(endTime);
+        }
+
+        let query = '';
+
+        switch (entityType) {
+          case 'transactions':
+            if (filter) {
+              if (filter.successful !== undefined) {
+                whereClause += ` AND successful = $${paramIndex++}`;
+                params.push(filter.successful);
+              }
+              if (filter.minFee) {
+                whereClause += ` AND fee_charged >= $${paramIndex++}`;
+                params.push(filter.minFee);
+              }
+              if (filter.maxFee) {
+                whereClause += ` AND fee_charged <= $${paramIndex++}`;
+                params.push(filter.maxFee);
+              }
+            }
+            query = `
+              SELECT hash, ledger_sequence, successful, fee_charged, operation_count,
+                     source_account, created_at, memo_type, memo
+              FROM transactions ${whereClause}
+              ORDER BY created_at DESC
+              LIMIT 10000
+            `;
+            break;
+          case 'ledgers':
+            query = `
+              SELECT sequence, successful_transaction_count, failed_transaction_count,
+                     operation_count, closed_at, base_fee_in_stroops, protocol_version
+              FROM ledgers ${whereClause}
+              ORDER BY sequence DESC
+              LIMIT 10000
+            `;
+            break;
+          case 'operations':
+            query = `
+              SELECT id, transaction_hash, type, source_account, ledger_sequence,
+                     operation_index, details, created_at
+              FROM operations ${whereClause}
+              ORDER BY created_at DESC
+              LIMIT 10000
+            `;
+            break;
+        }
+
+        const rows = await db.query(query, params);
+
+        if (format === 'csv') {
+          if (rows.length === 0) return '';
+          const headers = Object.keys(rows[0]);
+          const csvLines = [headers.join(',')];
+          for (const row of rows) {
+            const values = headers.map((h) => {
+              const val = row[h];
+              const str = val === null || val === undefined ? '' : String(val);
+              return str.includes(',') || str.includes('"') || str.includes('\n')
+                ? `"${str.replace(/"/g, '""')}"`
+                : str;
+            });
+            csvLines.push(values.join(','));
+          }
+          return csvLines.join('\n');
+        }
+
+        return JSON.stringify(rows, null, 2);
       }
     ),
   },

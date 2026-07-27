@@ -13,6 +13,8 @@ import {
   TransactionTimeRangeState,
 } from './TransactionFilters';
 import { useMemo, useState } from 'react';
+import { TableRowSkeleton } from './Skeleton';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 interface TransactionEdge {
@@ -123,19 +125,7 @@ export function TransactionsList() {
         <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700 }}>
           {t('transactions.title')}
         </h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              style={{
-                padding: '12px',
-                background: 'var(--color-skeleton)',
-                borderRadius: '8px',
-                height: '80px',
-              }}
-            />
-          ))}
-        </div>
+        <TableRowSkeleton count={5} columns={8} />
       </section>
     );
   }
