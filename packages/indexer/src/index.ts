@@ -166,6 +166,35 @@ class IndexerApp {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ message: 'Circuit breaker reset to CLOSED', timestamp: new Date().toISOString() }));
 
+      // ── GET /progress (ingestion progress snapshot) ────────────────────
+      } else if (req.url === '/progress' && req.method === 'GET') {
+        try {
+          const snapshot = this.indexerService.getProgressSnapshot();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            isRunning: true,
+            elapsedMs: this.indexerService.getIngestionElapsedMs(),
+            ...snapshot,
+          }));
+        } catch (error: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: error.message }));
+        }
+
+      // ── GET /progress/history (progress trend data) ─────────────────────
+      } else if (req.url === '/progress/history' && req.method === 'GET') {
+        try {
+          const history = this.indexerService.getProgressHistory();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            history,
+            count: history.length,
+          }));
+        } catch (error: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: error.message }));
+        }
+
       // ── POST /backfill (manual backfill from sequence) ───────────────────
       } else if (req.url === '/backfill' && req.method === 'POST') {
         try {

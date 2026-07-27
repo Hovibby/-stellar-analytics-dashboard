@@ -40,6 +40,7 @@ import {
 } from '../idempotency/IdempotencyTracker';
 import { BackfillCheckpointManager } from '../backfill/BackfillCheckpointManager';
 import { GapDetector, type GapDetectionReport, type GapRecoveryResult } from '../backfill/GapDetectionService';
+import { IngestionProgressTracker, type ProgressSnapshot, type ProgressHistoryEntry } from '../backfill/IngestionProgressTracker';
 
 export interface IndexerServiceOptions {
   /**
@@ -79,6 +80,7 @@ export class IndexerService {
   private readonly idempotency: IdempotencyTracker;
   private readonly rateLimiter: RateLimiter;
   private checkpointManager: BackfillCheckpointManager | null = null;
+  readonly progressTracker: IngestionProgressTracker = new IngestionProgressTracker();
 
   /** Configured batch sizes */
   readonly backfillBatchSize: number;
@@ -367,6 +369,10 @@ export class IndexerService {
       await ckpt.createJob();
     }
 
+    // ── Initialize progress tracker ────────────────────────────────────────
+    const totalLedgers = this.endSequence - this.startSequence + 1; // Actually from args
+    this.progressTracker.startTracking(endSequence - startSequence + 1);
+
     // ── Batch loop with checkpoint persistence ──────────────────────────────
     for (
       let sequence = resumeFrom;
@@ -392,6 +398,14 @@ export class IndexerService {
         // Update progress (approximate: we don't know exact per-ledger results here,
         // the per-ledger idempotency tracking handles dedup)
         processed += batchEnd - sequence + 1;
+
+        // ── Update progress tracker ───────────────────────────────────────
+        this.progressTracker.updateProgress({
+          processed,
+          skipped,
+          failed,
+          total: endSequence - startSequence + 1,
+        });
 
         // ── Persist checkpoint after each batch ───────────────────────────
         await ckpt.saveCheckpoint({
@@ -433,6 +447,7 @@ export class IndexerService {
         skippedCount: skipped,
         failedCount: failed,
       });
+      this.progressTracker.finishTracking();
     }
   }
 
@@ -1165,6 +1180,31 @@ export class IndexerService {
   }
 
   // ---------------------------------------------------------------------------
+  // Progress Tracking
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get the current ingestion progress snapshot.
+   */
+  getProgressSnapshot(): ProgressSnapshot {
+    return this.progressTracker.getSnapshot();
+  }
+
+  /**
+   * Get ingestion progress history for trend analysis.
+   */
+  getProgressHistory(): ProgressHistoryEntry[] {
+    return this.progressTracker.getHistory();
+  }
+
+  /**
+   * Get elapsed time since ingestion started.
+   */
+  getIngestionElapsedMs(): number {
+    return this.progressTracker.getElapsedMs();
+  }
+
+  // ---------------------------------------------------------------------------
   // Gap Detection & Recovery
   // ---------------------------------------------------------------------------
 
@@ -1182,10 +1222,6 @@ export class IndexerService {
 
   /**
    * Recover missing ledgers by backfilling detected gaps.
-   *
-   * Uses the existing backfill machinery (processLedgerBatch) to fill gaps.
-   * Each gap range is backfilled as a single contiguous range, so the
-   * checkpoint/resume logic in backfillLedgers handles interruptions.
    */
   async recoverMissingLedgers(): Promise<GapRecoveryResult> {
     const detector = new GapDetector(
