@@ -2,20 +2,85 @@ import { GraphQLResolveInfo } from 'graphql';
 import { db, CACHE_TTL } from '../database/connection';
 import { ValidationService } from '../services/validation';
 import { getStatsSummary } from '../services/stats-service';
+import { withResolverLogging } from '../utils/resolver-error';
+import { buildCacheKey, cachedQuery } from '../database/cached-query';
+import { Connection, PaginationArgs } from '@stellar-analytics/shared';
+import { createConnection } from '../utils/pagination';
+import { buildOrderByClause, OrderByClause } from '../utils/sorting';
+
+const OPERATION_SORT_FIELDS = new Map<string, string>([
+  ['id', 'id'],
+  ['createdAt', 'created_at'],
+]);
+
+const ASSET_SORT_FIELDS = new Map<string, string>([
+  ['assetCode', 'asset_code'],
+]);
 
 export const analyticsResolvers = {
   Query: {
-    networkMetrics: async (
-      parent: unknown,
-      args: {
-        timeRange?: { startTime?: string; endTime?: string };
-      },
-      _context: unknown,
-      _info: GraphQLResolveInfo
-    ) => {
-      if (args.timeRange) {
-        ValidationService.validateTimeRange(args.timeRange);
+    networkMetrics: withResolverLogging(
+      'Query.networkMetrics',
+      async (
+        parent: unknown,
+        args: {
+          timeRange?: { startTime?: string; endTime?: string };
+        },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ) => {
+        if (args.timeRange) {
+          ValidationService.validateTimeRange(args.timeRange);
+        }
+
+        const { startTime, endTime } = args.timeRange || {};
+        const cacheKey = buildCacheKey('network-metrics', { startTime, endTime });
+
+        return cachedQuery(cacheKey, CACHE_TTL.NETWORK_STATS, async () => {
+          let whereClause = 'WHERE 1=1';
+          const params: unknown[] = [];
+          let paramIndex = 1;
+
+          if (startTime) {
+            whereClause += ` AND timestamp >= $${paramIndex++}`;
+            params.push(startTime);
+          }
+          if (endTime) {
+            whereClause += ` AND timestamp <= $${paramIndex++}`;
+            params.push(endTime);
+          }
+
+          const rows = await db.query(
+            `
+            SELECT
+              timestamp,
+              ledger_count,
+              transaction_count,
+              operation_count,
+              active_accounts,
+              total_volume,
+              average_fee,
+              success_rate
+            FROM network_metrics
+            ${whereClause}
+            ORDER BY timestamp ASC
+          `,
+            params
+          );
+
+          return rows.map((row) => ({
+            timestamp: row.timestamp,
+            ledgerCount: row.ledger_count,
+            transactionCount: row.transaction_count,
+            operationCount: row.operation_count,
+            activeAccounts: row.active_accounts,
+            totalVolume: row.total_volume,
+            averageFee: parseFloat(row.average_fee),
+            successRate: parseFloat(row.success_rate),
+          }));
+        });
       }
+    ),
 
     // Issue #220: aggregation endpoints should return summary totals
     // alongside (or instead of) the raw list, not force every caller to
@@ -765,6 +830,50 @@ export const analyticsResolvers = {
       }
     ),
 
+    serviceStatus: withResolverLogging(
+      'Query.serviceStatus',
+      async () => {
+        const apiStatus = 'healthy';
+        let indexerStatus = 'healthy';
+        try {
+          const latestLedger = await db.queryOne<{ closed_at: string | Date }>(
+            'SELECT closed_at FROM ledgers ORDER BY sequence DESC LIMIT 1'
+          );
+          if (!latestLedger) {
+            indexerStatus = 'unhealthy';
+          } else {
+            const lastTime = new Date(latestLedger.closed_at).getTime();
+            const timeDiffMs = Date.now() - lastTime;
+            if (timeDiffMs > 60_000) { // 1 minute
+              indexerStatus = 'stalled';
+            }
+          }
+        } catch (error) {
+          indexerStatus = 'unhealthy';
+        }
+
+        let dataSourceStatus = 'healthy';
+        const horizonUrl = process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2000);
+          const res = await fetch(horizonUrl, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          if (!res.ok) {
+            dataSourceStatus = 'unhealthy';
+          }
+        } catch (error) {
+          dataSourceStatus = 'unhealthy';
+        }
+
+        return {
+          api: apiStatus,
+          indexer: indexerStatus,
+          dataSource: dataSourceStatus,
+        };
+      }
+    ),
+
     exportData: withResolverLogging(
       'Query.exportData',
       async (
@@ -871,44 +980,8 @@ export const analyticsResolvers = {
           return csvLines.join('\n');
         }
 
-      const metrics = await db.query(
-        `
-        SELECT 
-          account_id, timestamp, balance_native, total_balance_usd,
-          transaction_count_24h, transaction_count_7d, transaction_count_30d,
-          first_transaction, last_transaction, is_active, trustlines, signers
-        FROM account_metrics 
-        ${whereClause}
-        ORDER BY timestamp DESC
-        LIMIT 100
-      `,
-        params
-      );
-
-      const result = metrics.map(metric => ({
-        accountId: metric.account_id,
-        balanceNative: metric.balance_native,
-        totalBalanceUsd: metric.total_balance_usd,
-        transactionCount24h: metric.transaction_count_24h,
-        transactionCount7d: metric.transaction_count_7d,
-        transactionCount30d: metric.transaction_count_30d,
-        firstTransaction: metric.first_transaction,
-        lastTransaction: metric.last_transaction,
-        isActive: metric.is_active,
-        trustlines: metric.trustlines,
-        signers: metric.signers,
-      }));
-
-      // Cache the result
-      await db.cacheSet(cacheKey, result, CACHE_TTL.ACCOUNT_STATS);
-      return result;
-    },
-
-    stats: async (
-      parent: unknown,
-      args: unknown,
-      _context: unknown,
-      _info: GraphQLResolveInfo
-    ) => getStatsSummary(),
+        return JSON.stringify(rows);
+      }
+    ),
   },
 };

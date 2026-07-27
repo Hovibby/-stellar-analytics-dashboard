@@ -107,3 +107,14 @@ export const DATA_FRESHNESS_QUERY = gql`
     }
   }
 `;
+
+export const SERVICE_STATUS_QUERY = gql`
+  query GetServiceStatus {
+    serviceStatus {
+      api
+      indexer
+      dataSource
+    }
+  }
+`;
+

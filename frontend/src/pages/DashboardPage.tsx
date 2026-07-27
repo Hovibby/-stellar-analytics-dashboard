@@ -20,6 +20,8 @@ import { TransactionsList } from '../components/TransactionsList';
 import { CardSkeleton } from '../components/Skeleton';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Breadcrumbs } from '../components/Breadcrumbs';
+import { NetworkStatusIndicator } from '../components/NetworkStatusIndicator';
 
 export function DashboardPage() {
   const { data, loading, error, retry } = useDashboardData();
@@ -126,6 +128,9 @@ export function DashboardPage() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {/* Network status indicator */}
+          <NetworkStatusIndicator />
+
           {/* Language switcher */}
           <LanguageSwitcher />
 
@@ -143,6 +148,7 @@ export function DashboardPage() {
             data={statsToArray(stats)}
             baseFilename="dashboard-metrics"
             disabled={loading}
+            stats={stats}
           />
 
           {/* Soft refresh indicator while polling */}
@@ -156,6 +162,19 @@ export function DashboardPage() {
           )}
         </div>
       </header>
+
+      {/* Breadcrumbs Navigation */}
+      <Breadcrumbs
+        activeTab={activeTab}
+        onNavigate={(tab) => {
+          setActiveTab(tab);
+          if (tab !== 'transactions') {
+            setDrillDownRange(null);
+          }
+        }}
+        drillDownRange={drillDownRange}
+        onClearFilter={() => setDrillDownRange(null)}
+      />
 
       {/* Tab Navigation */}
       <div style={{ marginBottom: '24px', borderBottom: '1px solid #e5e7eb' }}>

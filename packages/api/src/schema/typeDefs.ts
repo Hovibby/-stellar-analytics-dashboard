@@ -591,6 +591,9 @@ export const typeDefs = gql`
     "Retrieve aggregated network statistics summary"
     stats: NetworkStats!
 
+    "Retrieve status of system services (API, indexer, and data source)"
+    serviceStatus: ServiceStatus!
+
     # Bulk data export (REST-style query for CSV/JSON export)
     exportData(
       entityType: String!
@@ -598,6 +601,16 @@ export const typeDefs = gql`
       timeRange: TimeRangeInput
       format: String = "json"
     ): String
+  }
+
+  "Status indicators for various system services"
+  type ServiceStatus {
+    "Status of the API server ('healthy' or 'unhealthy')"
+    api: String!
+    "Status of the indexer ('healthy', 'stalled', or 'unhealthy')"
+    indexer: String!
+    "Status of the Horizon data source ('healthy' or 'unhealthy')"
+    dataSource: String!
   }
 
   "Aggregated network statistics snapshot"
