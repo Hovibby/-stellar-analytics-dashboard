@@ -38,6 +38,7 @@ import {
   TransactionTracking,
   TX_IDEMPOTENCY_PREFIX,
 } from '../idempotency/IdempotencyTracker';
+import { BackfillCheckpointManager } from '../backfill/BackfillCheckpointManager';
 
 export interface IndexerServiceOptions {
   /**
@@ -76,6 +77,7 @@ export class IndexerService {
 
   private readonly idempotency: IdempotencyTracker;
   private readonly rateLimiter: RateLimiter;
+  private checkpointManager: BackfillCheckpointManager | null = null;
 
   /** Configured batch sizes */
   readonly backfillBatchSize: number;
@@ -145,7 +147,27 @@ export class IndexerService {
   // ---------------------------------------------------------------------------
 
   private async initializeLastProcessedLedger(): Promise<void> {
-    // Prefer the idempotency table as the source of truth
+    // Prefer the backfill checkpoint as the source of truth (most recent resume point)
+    const ckpt = new BackfillCheckpointManager({
+      pool: db.getPool(),
+      jobId: 'indexer-realtime',
+      network: 'public',
+      startSequence: 1,
+      endSequence: Number.MAX_SAFE_INTEGER,
+    });
+    await ckpt.ensureTable();
+    const resumable = await ckpt.findResumableJob();
+
+    if (resumable?.lastProcessedSequence) {
+      this.lastProcessedLedger = resumable.lastProcessedSequence;
+      console.log(
+        `[indexer] resuming from backfill checkpoint at ledger ${this.lastProcessedLedger}`,
+      );
+      metrics.lastProcessedLedger.set(this.lastProcessedLedger);
+      return;
+    }
+
+    // Fall back to the idempotency table
     const lastIdempotent = await this.idempotency.getLastProcessedSequence();
 
     if (lastIdempotent !== null) {
@@ -276,29 +298,140 @@ export class IndexerService {
       return;
     }
 
-    await this.backfillLedgers(startSequence, resolvedEnd);
+    // ── Checkpoint-resumable backfill ───────────────────────────────────────
+    // Before starting, check if there's an existing checkpoint for this range
+    const jobId = `backfill:${startSequence}-${resolvedEnd}`;
+    const ckpt = new BackfillCheckpointManager({
+      pool: db.getPool(),
+      jobId,
+      network: 'public',
+      startSequence,
+      endSequence: resolvedEnd,
+    });
+    await ckpt.ensureTable();
+
+    const existingJob = await ckpt.loadJob();
+    let effectiveStart = startSequence;
+
+    if (
+      existingJob &&
+      existingJob.status === 'in_progress' &&
+      existingJob.lastProcessedSequence
+    ) {
+      effectiveStart = existingJob.lastProcessedSequence + 1;
+      console.log(
+        `[indexer] found resumable backfill – resuming from ledger ${effectiveStart}`,
+      );
+    }
+
+    await this.backfillLedgers(effectiveStart, resolvedEnd);
   }
 
   private async backfillLedgers(startSequence: number, endSequence: number): Promise<void> {
     console.log(`[indexer] backfilling ledgers ${startSequence} → ${endSequence}`);
     console.log(`[indexer] batch size: ${this.backfillBatchSize} ledgers per batch`);
 
+    // ── Checkpoint setup ────────────────────────────────────────────────────
+    const jobId = `backfill:${startSequence}-${endSequence}`;
+    const ckpt = new BackfillCheckpointManager({
+      pool: db.getPool(),
+      jobId,
+      network: 'public',
+      startSequence,
+      endSequence,
+    });
+    await ckpt.ensureTable();
+
+    // Check if there is a resumable checkpoint for this range
+    const existingJob = await ckpt.loadJob();
+    let resumeFrom = startSequence;
+    let processed = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    if (
+      existingJob &&
+      existingJob.status === 'in_progress' &&
+      existingJob.lastProcessedSequence
+    ) {
+      resumeFrom = existingJob.lastProcessedSequence + 1;
+      processed = existingJob.processedCount;
+      skipped = existingJob.skippedCount;
+      failed = existingJob.failedCount;
+      console.log(
+        `[indexer] resuming backfill from checkpoint at ledger ${resumeFrom} ` +
+          `(processed=${processed}, skipped=${skipped}, failed=${failed})`,
+      );
+    } else {
+      await ckpt.createJob();
+    }
+
+    // ── Batch loop with checkpoint persistence ──────────────────────────────
     for (
-      let sequence = startSequence;
+      let sequence = resumeFrom;
       sequence <= endSequence;
       sequence += this.backfillBatchSize
     ) {
-      if (!this.isRunning) break;
+      if (!this.isRunning) {
+        await ckpt.markCancelled({
+          lastProcessedSequence: sequence - 1,
+          processedCount: processed,
+          skippedCount: skipped,
+          failedCount: failed,
+        });
+        break;
+      }
 
       const batchEnd = Math.min(sequence + this.backfillBatchSize - 1, endSequence);
 
       try {
         await this.processLedgerBatch(sequence, batchEnd);
         console.log(`[indexer] backfilled ledgers ${sequence} → ${batchEnd}`);
+
+        // Update progress (approximate: we don't know exact per-ledger results here,
+        // the per-ledger idempotency tracking handles dedup)
+        processed += batchEnd - sequence + 1;
+
+        // ── Persist checkpoint after each batch ───────────────────────────
+        await ckpt.saveCheckpoint({
+          lastProcessedSequence: batchEnd,
+          processedCount: processed,
+          skippedCount: skipped,
+          failedCount: failed,
+        });
       } catch (error) {
-        console.error(`[indexer] error backfilling ledgers ${sequence} → ${batchEnd}:`, error);
+        const errMsg =
+          error instanceof Error ? error.message : String(error);
+        console.error(
+          `[indexer] error backfilling ledgers ${sequence} → ${batchEnd}:`,
+          error,
+        );
         metrics.errorsTotal.inc({ type: 'backfill' });
+
+        // ── Mark failed checkpoint ────────────────────────────────────────
+        await ckpt.markFailed(errMsg, {
+          lastProcessedSequence: sequence - 1,
+          processedCount: processed,
+          skippedCount: skipped,
+          failedCount,
+        });
       }
+    }
+
+    // ── Mark completed if all ledgers processed ──────────────────────────
+    // We don't know the exact skipped/failed counts at this level, but we can
+    // check if we reached endSequence
+    const lastSeq = existingJob?.lastProcessedSequence
+      ? Math.max(existingJob.lastProcessedSequence, resumeFrom - 1) + (processed + skipped)
+      : resumeFrom - 1 + processed + skipped;
+
+    if (lastSeq >= endSequence) {
+      await ckpt.markCompleted({
+        lastProcessedSequence: endSequence,
+        processedCount: processed,
+        skippedCount: skipped,
+        failedCount: failed,
+      });
     }
   }
 
