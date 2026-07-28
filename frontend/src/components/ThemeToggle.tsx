@@ -15,6 +15,7 @@ export function ThemeToggle() {
     <button
       onClick={toggleTheme}
       aria-label={`Switch to ${theme === 'light' ? t('app.switchToDarkMode') : t('app.switchToLightMode')}`}
+      title={theme === 'light' ? `${t('app.switchToDarkMode')} (Alt+t)` : `${t('app.switchToLightMode')} (Alt+t)`}
       style={{
         background: 'var(--color-card-background)',
         border: '1px solid var(--color-border)',
