@@ -8,9 +8,57 @@ export interface IngestedData {
   operations: Horizon.ServerApi.OperationRecord[];
 }
 
-export async function pollLatestLedger(network: StellarNetwork): Promise<IngestedData> {
+/**
+ * A minimal interface covering only the Horizon.Server methods used by
+ * this module.  Accepting this interface instead of the concrete class lets
+ * tests inject a mock without monkey-patching the SDK.
+ */
+export interface HorizonServerLike {
+  ledgers(): {
+    order(dir: string): { limit(n: number): { call(): Promise<{ records: any[] }> } };
+    ledger(seq: number): { call(): Promise<{ records?: any[]; sequence?: number }> };
+  };
+  transactions(): {
+    forLedger(seq: number): {
+      limit(n: number): { call(): Promise<{ records: any[] }> };
+      call(): Promise<{ records: any[] }>;
+    };
+  };
+  operations(): {
+    forLedger(seq: number): {
+      limit(n: number): { call(): Promise<{ records: any[] }> };
+      call(): Promise<{ records: any[] }>;
+    };
+  };
+}
+
+/**
+ * Resolve the server to use:
+ *  - If `serverOverride` is provided (e.g. in tests), use it directly.
+ *  - If `STELLAR_MOCK=true` env var is set, use the built-in mock server.
+ *  - Otherwise create a real Horizon.Server for the given network.
+ */
+async function resolveServer(
+  network: StellarNetwork,
+  serverOverride?: HorizonServerLike
+): Promise<HorizonServerLike> {
+  if (serverOverride) return serverOverride;
+
+  if (process.env.STELLAR_MOCK === "true") {
+    // Lazy import so the mock module is never loaded in production bundles
+    const { getMockHorizonServer } = await import("./mock-horizon.js");
+    return getMockHorizonServer() as unknown as HorizonServerLike;
+  }
+
   const config = STELLAR_NETWORKS[network];
-  const server = new Horizon.Server(config.horizonUrl);
+  return new Horizon.Server(config.horizonUrl) as unknown as HorizonServerLike;
+}
+
+export async function pollLatestLedger(
+  network: StellarNetwork,
+  serverOverride?: HorizonServerLike
+): Promise<IngestedData> {
+  const server = await resolveServer(network, serverOverride);
 
   try {
     ingesterLogger.debug({ network }, "Polling Horizon for latest ledger");
@@ -59,10 +107,10 @@ export async function pollLatestLedger(network: StellarNetwork): Promise<Ingeste
  */
 export async function fetchLedger(
   network: StellarNetwork,
-  sequence: number
+  sequence: number,
+  serverOverride?: HorizonServerLike
 ): Promise<IngestedData> {
-  const config = STELLAR_NETWORKS[network];
-  const server = new Horizon.Server(config.horizonUrl);
+  const server = await resolveServer(network, serverOverride);
 
   const ledgerResp = await (server.ledgers().ledger(sequence) as any).call();
   const ledger: Horizon.ServerApi.LedgerRecord =
@@ -87,11 +135,12 @@ export async function fetchLedger(
 export async function fetchLedgerRange(
   network: StellarNetwork,
   start: number,
-  end: number
+  end: number,
+  serverOverride?: HorizonServerLike
 ): Promise<IngestedData[]> {
   const results: IngestedData[] = [];
   for (let seq = start; seq <= end; seq++) {
-    results.push(await fetchLedger(network, seq));
+    results.push(await fetchLedger(network, seq, serverOverride));
   }
   return results;
 }
