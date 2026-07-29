@@ -26,6 +26,9 @@ import { Pool, PoolClient, QueryResult } from 'pg';
 import winston from 'winston';
 import { metrics } from '../metrics/IndexerMetrics';
 
+/** Prefix used for transaction idempotency keys in the tracking table. */
+export const TX_IDEMPOTENCY_PREFIX = 'tx';
+
 // ---------------------------------------------------------------------------
 // Types and Enums
 // ---------------------------------------------------------------------------
@@ -1001,6 +1004,91 @@ export namespace LedgerTracking {
       opts,
     );
     return result.executed;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Transaction-specific convenience methods
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an idempotency key for a transaction hash.
+ *
+ * @param txHash – The 64-char hex transaction hash.
+ * @returns A string like "tx:abc123…" suitable for use with IdempotencyTracker.
+ */
+export function buildTxKey(txHash: string): string {
+  return `${TX_IDEMPOTENCY_PREFIX}:${txHash}`;
+}
+
+/**
+ * Transaction-specific tracking methods.
+ *
+ * These wrap the generic IdempotencyTracker with transaction-specific defaults
+ * to make call sites clearer and reduce boilerplate.
+ */
+export namespace TransactionTracking {
+  /**
+   * Check whether a transaction hash has already been processed.
+   * Uses the in-memory cache first; falls back to DB.
+   */
+  export async function isTransactionProcessed(
+    tracker: IdempotencyTracker,
+    txHash: string,
+  ): Promise<boolean> {
+    return tracker.isProcessed(buildTxKey(txHash));
+  }
+
+  /**
+   * Mark a transaction hash as processed.
+   *
+   * @param tracker       – The IdempotencyTracker instance.
+   * @param txHash        – The 64-char hex transaction hash.
+   * @param ledgerSequence – The ledger sequence this transaction belongs to.
+   */
+  export async function markTransactionProcessed(
+    tracker: IdempotencyTracker,
+    txHash: string,
+    ledgerSequence: number,
+  ): Promise<ProcessedRecord> {
+    return tracker.markProcessed(TX_IDEMPOTENCY_PREFIX, buildTxKey(txHash), ledgerSequence, {
+      metadata: { ledgerSequence },
+    });
+  }
+
+  /**
+   * Filter out already-processed transaction hashes from a list.
+   *
+   * Returns two arrays:
+   *   `unprocessed`   – hashes that need processing (not yet tracked).
+   *   `duplicates`    – hashes that have already been processed (skipped).
+   */
+  export async function filterDuplicateTxHashes(
+    tracker: IdempotencyTracker,
+    txHashes: string[],
+  ): Promise<{
+    unprocessed: string[];
+    duplicates: string[];
+  }> {
+    const results = await Promise.all(
+      txHashes.map(async (hash) => {
+        const processed = await tracker.isProcessed(buildTxKey(hash));
+        return { hash, processed };
+      }),
+    );
+
+    const unprocessed: string[] = [];
+    const duplicates: string[] = [];
+
+    for (const r of results) {
+      if (r.processed) {
+        duplicates.push(r.hash);
+      } else {
+        unprocessed.push(r.hash);
+      }
+    }
+
+    return { unprocessed, duplicates };
   }
 }
 

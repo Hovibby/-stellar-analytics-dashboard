@@ -41,6 +41,7 @@ export const TABLES = {
   NETWORK_METRICS: 'network_metrics',
   ASSET_METRICS: 'asset_metrics',
   ACCOUNT_METRICS: 'account_metrics',
+  ACCOUNT_EVENTS: 'account_events',
 } as const;
 
 /**
@@ -52,6 +53,7 @@ export const API = {
   MAX_PAGE_SIZE: 100,
   RATE_LIMIT_WINDOW: 60000, // 1 minute
   RATE_LIMIT_MAX_REQUESTS: 1000,
+  ACCOUNT_EVENT_BATCH_SIZE: 50,
   WEBSOCKET_PING_INTERVAL: 30000, // 30 seconds
   WEBSOCKET_MESSAGE_QUEUE_SIZE: 1000,
 } as const;
@@ -76,6 +78,9 @@ export const CACHE = {
 
 /**
  * Indexer constants
+ *
+ * These are the _default_ values.  Operators can override most of them at
+ * runtime via environment variables — see `getIndexerConfig()` below.
  */
 export const INDEXER = {
   POLL_INTERVAL: 5000, // 5 seconds
@@ -86,6 +91,78 @@ export const INDEXER = {
   WEBSOCKET_RECONNECT_DELAY: 5000, // 5 seconds
   WEBSOCKET_MAX_RECONNECT_ATTEMPTS: 10,
 } as const;
+
+/**
+ * Environment-variable overrides for indexer batching configuration.
+ *
+ * These allow operators to tune throughput vs. database pressure without
+ * touching application code or rebuilding containers.
+ *
+ * | Env var                   | Controls                     | Default |
+ * |---------------------------|------------------------------|---------|
+ * | `BACKFILL_BATCH_SIZE`     | Ledgers fetched per backfill batch | 1000  |
+ * | `LEDGER_BATCH_SIZE`       | Ledgers processed per DB batch     | 100    |
+ * | `POLL_INTERVAL_MS`        | Real-time poll interval (ms)       | 5000   |
+ * | `TRANSACTION_BATCH_SIZE`  | Transactions inserted per DB batch | 50     |
+ * | `OPERATION_BATCH_SIZE`    | Operations inserted per DB batch   | 100    |
+ *
+ * All env vars are optional — the defaults in `INDEXER` are used when a
+ * variable is unset, empty, or not a valid positive integer.
+ */
+export function getIndexerConfig(): {
+  backfillBatchSize: number;
+  ledgerBatchSize: number;
+  pollIntervalMs: number;
+  transactionBatchSize: number;
+  operationBatchSize: number;
+} {
+  const toPositiveInt = (
+    raw: string | undefined,
+    fallback: number,
+  ): number => {
+    if (!raw) return fallback;
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : fallback;
+  };
+
+  return {
+    backfillBatchSize: toPositiveInt(
+      process.env.BACKFILL_BATCH_SIZE,
+      INDEXER.BACKFILL_BATCH_SIZE,
+    ),
+    ledgerBatchSize: toPositiveInt(
+      process.env.LEDGER_BATCH_SIZE,
+      INDEXER.BATCH_SIZE,
+    ),
+    pollIntervalMs: toPositiveInt(
+      process.env.POLL_INTERVAL_MS,
+      INDEXER.POLL_INTERVAL,
+    ),
+    transactionBatchSize: toPositiveInt(
+      process.env.TRANSACTION_BATCH_SIZE,
+      50,
+    ),
+    operationBatchSize: toPositiveInt(
+      process.env.OPERATION_BATCH_SIZE,
+      100,
+    ),
+  };
+}
+
+/** Singleton-like cached config so we only parse env vars once. */
+let _cachedIndexerConfig: ReturnType<typeof getIndexerConfig> | null = null;
+
+export function getCachedIndexerConfig(): ReturnType<typeof getIndexerConfig> {
+  if (!_cachedIndexerConfig) {
+    _cachedIndexerConfig = getIndexerConfig();
+  }
+  return _cachedIndexerConfig;
+}
+
+/** Clear the cached config (useful in tests). */
+export function resetIndexerConfigCache(): void {
+  _cachedIndexerConfig = null;
+}
 
 /**
  * Operation types for analytics
@@ -161,6 +238,7 @@ export const WS_MESSAGE_TYPES = {
   LEDGER: 'ledger',
   TRANSACTION: 'transaction',
   OPERATION: 'operation',
+  ACCOUNT_EVENT: 'account_event',
   METRICS: 'metrics',
   ERROR: 'error',
   PING: 'ping',

@@ -19,12 +19,16 @@ import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { useAppStore } from '@/store';
 import { usePreferencesStore } from '@/store';
 import { useNotifications } from '@/hooks/useNotifications';
+import { usePerformanceMonitor } from '@/hooks/usePerformanceMonitor';
 
 export function Layout() {
   const { sidebarOpen, setSidebarOpen } = useAppStore();
   const { theme, setTheme } = usePreferencesStore();
   const { unreadCount } = useNotifications();
   const location = useLocation();
+
+  // Activate API / page-load performance monitoring for the whole app
+  usePerformanceMonitor();
 
   // Ref to restore focus to the menu button when sidebar closes
   const menuButtonRef = useRef<HTMLButtonElement>(null);

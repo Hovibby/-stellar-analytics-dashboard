@@ -21,6 +21,8 @@ import { format } from 'date-fns';
 import { Download, ImageIcon, RefreshCcw } from 'lucide-react';
 import { clsx } from 'clsx';
 import { NETWORK_METRICS_QUERY } from '@/graphql/queries';
+import { ChartTooltip } from './ChartTooltip';
+import { ChartLegend } from './ChartLegend';
 
 type ActiveSeries = 'transactionCount' | 'operationCount' | 'activeAccounts' | 'averageFee';
 
@@ -37,24 +39,16 @@ function CustomTooltip({ active, payload }: TooltipProps<number, string>) {
   if (!d) return null;
 
   return (
-    <div className="bg-card border border-border rounded-xl shadow-xl p-3 text-xs min-w-[160px]">
-      <p className="font-semibold text-foreground mb-2 border-b border-border pb-1.5">
-        {format(new Date(d.timestamp), 'MMM dd HH:mm')}
-      </p>
-      <div className="space-y-1.5">
-        {SERIES.map((s) => (
-          <div key={s.key} className="flex justify-between gap-4">
-            <span style={{ color: s.color }}>{s.label}</span>
-            <span className="font-mono font-semibold">
-              {typeof d[s.key] === 'number'
-                ? d[s.key].toLocaleString()
-                : '—'}
-              {s.unit ? ` ${s.unit}` : ''}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
+    <ChartTooltip
+      header={format(new Date(d.timestamp), 'MMM dd HH:mm')}
+      minWidth={170}
+      rows={SERIES.map((s) => ({
+        label: s.label,
+        value: `${typeof d[s.key] === 'number' ? d[s.key].toLocaleString() : '—'}${s.unit ? ` ${s.unit}` : ''}`,
+        color: s.color,
+        dot: true,
+      }))}
+    />
   );
 }
 
@@ -225,6 +219,7 @@ export function NetworkChart() {
               activeDot={{ r: 4, strokeWidth: 0, fill: series.color }}
             />
           </AreaChart>
+          <ChartLegend items={SERIES.map((s) => ({ label: s.label, color: s.color }))} className="pt-3" />
         </ResponsiveContainer>
       </div>
     </div>

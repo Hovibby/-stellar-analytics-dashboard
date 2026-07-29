@@ -1,0 +1,187 @@
+name: Visual Regression Tests
+
+# Detects unexpected UI regressions in dashboard and card components.
+#
+# Two modes:
+#   1. compare  – runs against existing baselines; fails on any pixel diff
+#                 above the configured threshold (maxDiffPixelRatio: 0.03).
+#   2. update   – regenerates all baseline snapshots and opens a PR.
+#                 Triggered manually via workflow_dispatch.
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'packages/frontend/src/**'
+      - 'packages/e2e/tests/visual-regression.spec.ts'
+      - 'packages/e2e/playwright.config.ts'
+      - '.github/workflows/visual-regression.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'packages/frontend/src/**'
+      - 'packages/e2e/tests/visual-regression.spec.ts'
+      - 'packages/e2e/playwright.config.ts'
+      - '.github/workflows/visual-regression.yml'
+  workflow_dispatch:
+    inputs:
+      update_snapshots:
+        description: 'Regenerate baseline snapshots (opens a PR with the diff)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  visual-regression:
+    name: Visual Regression (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: stellar_analytics_test
+          POSTGRES_USER: stellar_user
+          POSTGRES_PASSWORD: stellar_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium only
+        run: pnpm --filter @stellar-analytics/e2e exec playwright install chromium --with-deps
+
+      - name: Build packages
+        run: pnpm build
+        env:
+          CI: true
+
+      - name: Start API server
+        run: |
+          pnpm --filter @stellar-analytics/api dev &
+          sleep 8
+        env:
+          DATABASE_URL: postgres://stellar_user:stellar_password@localhost:5432/stellar_analytics_test
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: test
+          PORT: 4000
+
+      - name: Start Frontend dev server
+        run: |
+          pnpm --filter @stellar-analytics/frontend dev &
+          sleep 8
+        env:
+          VITE_GRAPHQL_URL: http://localhost:4000/graphql
+
+      # ── Compare mode (default) ───────────────────────────────────────────
+      - name: Run visual regression tests (compare)
+        if: ${{ !inputs.update_snapshots }}
+        run: pnpm --filter @stellar-analytics/e2e test:visual:ci
+        env:
+          BASE_URL: http://localhost:5173
+          CI: true
+
+      # ── Update mode (manual trigger only) ───────────────────────────────
+      - name: Regenerate baseline snapshots
+        if: ${{ inputs.update_snapshots }}
+        run: pnpm --filter @stellar-analytics/e2e test:visual:update
+        env:
+          BASE_URL: http://localhost:5173
+          CI: true
+
+      - name: Open PR with updated snapshots
+        if: ${{ inputs.update_snapshots }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: 'test(visual): update baseline snapshots'
+          title: 'chore: update visual regression baselines'
+          body: |
+            Automated PR to update Playwright visual regression baselines.
+
+            Triggered by: ${{ github.actor }}
+
+            Review the screenshot diffs in the `packages/e2e/tests/__snapshots__/`
+            directory before merging.
+          branch: chore/update-visual-snapshots
+          labels: 'visual-regression, automated'
+
+      # ── Always upload artefacts ──────────────────────────────────────────
+      - name: Upload test results and diffs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-results
+          path: |
+            packages/e2e/test-results/
+            packages/e2e/playwright-report/
+          retention-days: 30
+
+      - name: Upload snapshot diffs (failures only)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-diffs
+          path: |
+            packages/e2e/test-results/**/*-diff.png
+            packages/e2e/test-results/**/*-actual.png
+            packages/e2e/test-results/**/*-expected.png
+          retention-days: 30
+
+      # Surface a summary comment on PRs so reviewers see the diff count
+      - name: Comment on PR with regression summary
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const junitPath = 'packages/e2e/test-results/junit.xml';
+            if (!fs.existsSync(junitPath)) return;
+            const xml = fs.readFileSync(junitPath, 'utf8');
+            const tests    = (xml.match(/tests="(\d+)"/)    || ['','?'])[1];
+            const failures = (xml.match(/failures="(\d+)"/) || ['','0'])[1];
+            const errors   = (xml.match(/errors="(\d+)"/)   || ['','0'])[1];
+            const icon = failures === '0' && errors === '0' ? '✅' : '❌';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: [
+                '## Visual Regression Results',
+                `${icon} **${tests}** snapshots compared · **${failures}** failures · **${errors}** errors`,
+                '',
+                failures !== '0'
+                  ? '> Pixel diffs have been uploaded as CI artefacts. Download **visual-regression-diffs** to inspect expected vs actual screenshots.'
+                  : '> All snapshots match their baselines.',
+              ].join('\n'),
+            });

@@ -11,20 +11,47 @@ import {
   ApolloClient,
   InMemoryCache,
   createHttpLink,
+  split,
   from,
 } from "@apollo/client";
+import { GraphQLWsLink } from "@apollo/client/link/subscriptions";
+import { getMainDefinition } from "@apollo/client/utilities";
+import { createClient } from "graphql-ws";
 import { onError } from "@apollo/client/link/error";
 import { RetryLink } from "@apollo/client/link/retry";
 
 // ── HTTP link ─────────────────────────────────────────────────────────────────
 // In development the API runs on :4000; in production it is expected to be
 // served from the same origin under /graphql.
-const httpLink = createHttpLink({
-  uri:
-    typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_GRAPHQL_URL
-      ? (import.meta as any).env.VITE_GRAPHQL_URL
-      : "http://localhost:4000/graphql",
-});
+const graphqlUrl =
+  typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_GRAPHQL_URL
+    ? (import.meta as any).env.VITE_GRAPHQL_URL
+    : "http://localhost:4000/graphql";
+
+const httpLink = createHttpLink({ uri: graphqlUrl });
+
+// ── WebSocket link (Issue #210) ───────────────────────────────────────────────
+// Real-time subscriptions (ledgerAdded, ...) over graphql-ws, backed by
+// Postgres LISTEN/NOTIFY on the API side (see api/src/pg-listener.ts).
+const wsLink = new GraphQLWsLink(
+  createClient({
+    url: graphqlUrl.replace(/^http/, "ws"),
+  })
+);
+
+// Route subscription operations over the WebSocket link, everything else
+// (queries/mutations) over HTTP.
+const splitLink = split(
+  ({ query }) => {
+    const definition = getMainDefinition(query);
+    return (
+      definition.kind === "OperationDefinition" &&
+      definition.operation === "subscription"
+    );
+  },
+  wsLink,
+  httpLink
+);
 
 // ── Error link ────────────────────────────────────────────────────────────────
 const errorLink = onError(({ graphQLErrors, networkError, operation }) => {
@@ -128,7 +155,7 @@ const cache = new InMemoryCache({
 
 // ── Client ────────────────────────────────────────────────────────────────────
 export const apolloClient = new ApolloClient({
-  link: from([errorLink, retryLink, httpLink]),
+  link: from([errorLink, retryLink, splitLink]),
   cache,
   defaultOptions: {
     watchQuery: {

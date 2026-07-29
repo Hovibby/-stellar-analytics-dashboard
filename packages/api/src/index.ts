@@ -19,12 +19,9 @@ import { createLoaders } from './loaders';
 import { formatQueryMetricsPrometheus, getQueryMetrics } from './database/query-monitor';
 import type { HealthCheckResult } from './database/connection';
 import { RealtimePublisher } from './services/realtime-publisher';
-import { 
-  checkSubscriptionRateLimit, 
-  checkEventRateLimit, 
-  cleanupRateLimits 
-} from './pubsub';
+import { checkSubscriptionRateLimit, checkEventRateLimit, cleanupRateLimits } from './pubsub';
 import { authService } from './services/auth';
+import { createTraceContext, extractTraceId, logTrace, getTraceResponseHeader, TraceContext } from './utils/tracer';
 
 dotenv.config();
 
@@ -32,8 +29,15 @@ const MAX_QUERY_COMPLEXITY = 1000;
 
 // List field names that resolve to paginated collections — cost scaled by requested size
 const LIST_FIELD_NAMES = new Set([
-  'transactions', 'ledgers', 'accounts', 'operations', 'assets',
-  'edges', 'nodes', 'networkMetrics', 'assetMetrics',
+  'transactions',
+  'ledgers',
+  'accounts',
+  'operations',
+  'assets',
+  'edges',
+  'nodes',
+  'networkMetrics',
+  'assetMetrics',
 ]);
 
 function timeoutMiddleware(timeoutMs: number, logger: winston.Logger) {
@@ -75,7 +79,6 @@ function calculateQueryComplexity(document: any, variables?: Record<string, any>
       if (LIST_FIELD_NAMES.has(fieldName)) {
         let listSize = 10;
 
-        // Extract list size from inline `pagination: { first: N }` argument
         const paginationArg = selection.arguments?.find((a: any) => a.name.value === 'pagination');
         if (paginationArg?.value?.fields) {
           const firstField = paginationArg.value.fields.find((f: any) => f.name.value === 'first');
@@ -87,7 +90,6 @@ function calculateQueryComplexity(document: any, variables?: Record<string, any>
           }
         }
 
-        // Also check a bare `first` argument
         const firstArg = selection.arguments?.find((a: any) => a.name.value === 'first');
         if (firstArg?.value?.kind === 'IntValue') {
           listSize = parseInt(firstArg.value.value, 10);
@@ -141,10 +143,7 @@ class ApiServer {
       ),
       transports: [
         new winston.transports.Console({
-          format: winston.format.combine(
-            winston.format.colorize(),
-            winston.format.simple()
-          ),
+          format: winston.format.combine(winston.format.colorize(), winston.format.simple()),
         }),
         new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
         new winston.transports.File({ filename: 'logs/combined.log' }),
@@ -153,20 +152,33 @@ class ApiServer {
   }
 
   private setupMiddleware(): void {
-    this.app.use(helmet({
-      contentSecurityPolicy: false,
-      crossOriginEmbedderPolicy: false,
-    }));
+    this.app.use(
+      helmet({
+        contentSecurityPolicy: false,
+        crossOriginEmbedderPolicy: false,
+      })
+    );
 
-    this.app.use(cors({
-      origin: process.env.CORS_ORIGIN || '*',
-      credentials: true,
-    }));
+    this.app.use(
+      cors({
+        origin: process.env.CORS_ORIGIN || '*',
+        credentials: true,
+      })
+    );
 
     this.app.use(compression());
 
     // ── Request Timeout ────────────────────────────────────────────────────────────
     this.app.use(timeoutMiddleware(30000, this.logger));
+
+    // ── HTTP performance tracking middleware ──────────────────────────────────────
+    this.app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+      const start = Date.now();
+      res.on('finish', () => {
+        getPerfAlerting()?.onHttpRequest(req.method, req.path, res.statusCode, Date.now() - start);
+      });
+      next();
+    });
 
     // ── Rate limiting ─────────────────────────────────────────────────────────
     //
@@ -185,14 +197,52 @@ class ApiServer {
     // Tier 3 – Anonymous / IP fallback
     //   Lowest ceiling. Keyed on IP address.
 
-    const API_KEY_WINDOW_MS   = parseInt(process.env.RATE_LIMIT_API_KEY_WINDOW_MS   || '60000',  10);
-    const API_KEY_MAX         = parseInt(process.env.RATE_LIMIT_API_KEY_MAX         || '300',    10);
-    const JWT_USER_WINDOW_MS  = parseInt(process.env.RATE_LIMIT_JWT_USER_WINDOW_MS  || '60000',  10);
-    const JWT_USER_MAX        = parseInt(process.env.RATE_LIMIT_JWT_USER_MAX        || '1000',   10);
-    const ANON_WINDOW_MS      = parseInt(process.env.RATE_LIMIT_ANON_WINDOW_MS      || '60000',  10);
-    const ANON_MAX            = parseInt(process.env.RATE_LIMIT_ANON_MAX            || '100',    10);
+    const ADMIN_WINDOW_MS = parseInt(process.env.RATE_LIMIT_ADMIN_WINDOW_MS || '60000', 10);
+    const ADMIN_MAX = parseInt(process.env.RATE_LIMIT_ADMIN_MAX || '2000', 10);
+    const API_KEY_WINDOW_MS = parseInt(process.env.RATE_LIMIT_API_KEY_WINDOW_MS || '60000', 10);
+    const API_KEY_MAX = parseInt(process.env.RATE_LIMIT_API_KEY_MAX || '300', 10);
+    const JWT_USER_WINDOW_MS = parseInt(process.env.RATE_LIMIT_JWT_USER_WINDOW_MS || '60000', 10);
+    const JWT_USER_MAX = parseInt(process.env.RATE_LIMIT_JWT_USER_MAX || '1000', 10);
+    const ANON_WINDOW_MS = parseInt(process.env.RATE_LIMIT_ANON_WINDOW_MS || '60000', 10);
+    const ANON_MAX = parseInt(process.env.RATE_LIMIT_ANON_MAX || '100', 10);
 
-    // Tier 1 – API key limiter
+    // Tier 1 - Admin user limiter
+    const adminLimiter = rateLimit({
+      windowMs: ADMIN_WINDOW_MS,
+      max: ADMIN_MAX,
+      standardHeaders: true,
+      legacyHeaders: false,
+      skip: (req) => {
+        const token = authService.extractToken(req.headers.authorization);
+        if (!token) return true;
+        const payload = authService.verifyToken(token);
+        return !payload || payload.role !== 'admin';
+      },
+      keyGenerator: (req) => {
+        const token = authService.extractToken(req.headers.authorization);
+        if (token) {
+          const payload = authService.verifyToken(token);
+          if (payload) return `admin:${payload.userId}`;
+        }
+        return req.ip || req.socket.remoteAddress || 'unknown';
+      },
+      message: {
+        error: 'Admin rate limit exceeded. Please reduce your request rate.',
+      },
+      handler: (req, res, next, options) => {
+        const token = authService.extractToken(req.headers.authorization);
+        const payload = token ? authService.verifyToken(token) : null;
+        this.logger.warn('Admin rate limit exceeded', {
+          userId: payload?.userId ?? 'unknown',
+          ip: req.ip,
+          limit: options.max,
+          windowMs: options.windowMs,
+        });
+        res.status(429).json(options.message);
+      },
+    });
+
+    // Tier 2 – API key limiter
     const apiKeyLimiter = rateLimit({
       windowMs: API_KEY_WINDOW_MS,
       max: API_KEY_MAX,
@@ -208,7 +258,8 @@ class ApiServer {
         return `apikey:${req.headers['x-api-key']}`;
       },
       message: {
-        error: 'API key rate limit exceeded. Please reduce your request rate or contact support to increase your quota.',
+        error:
+          'API key rate limit exceeded. Please reduce your request rate or contact support to increase your quota.',
       },
       handler: (req, res, next, options) => {
         this.logger.warn('API key rate limit exceeded', {
@@ -221,7 +272,7 @@ class ApiServer {
       },
     });
 
-    // Tier 2 – JWT user limiter
+    // Tier 3 – JWT user limiter
     const jwtUserLimiter = rateLimit({
       windowMs: JWT_USER_WINDOW_MS,
       max: JWT_USER_MAX,
@@ -259,7 +310,7 @@ class ApiServer {
       },
     });
 
-    // Tier 3 – Anonymous / IP fallback limiter
+    // Tier 4 – Anonymous / IP fallback limiter
     const anonLimiter = rateLimit({
       windowMs: ANON_WINDOW_MS,
       max: ANON_MAX,
@@ -287,8 +338,8 @@ class ApiServer {
       },
     });
 
-    // Apply all three limiters to the GraphQL endpoint
-    this.app.use('/graphql', apiKeyLimiter, jwtUserLimiter, anonLimiter);
+    // Apply all four limiters to the GraphQL endpoint
+    this.app.use('/graphql', adminLimiter, apiKeyLimiter, jwtUserLimiter, anonLimiter);
 
     this.app.get('/health/live', (_req, res) => {
       res.status(200).json({ status: 'alive', timestamp: new Date().toISOString() });
@@ -327,9 +378,8 @@ class ApiServer {
     this.app.get('/health', async (_req, res) => {
       try {
         const health: HealthCheckResult = await db.healthCheck();
-        const statusCode = health.status === 'unhealthy' ? 503
-          : health.status === 'degraded' ? 200
-          : 200;
+        const statusCode =
+          health.status === 'unhealthy' ? 503 : health.status === 'degraded' ? 200 : 200;
         res.status(statusCode).json(health);
       } catch (error: any) {
         res.status(503).json({
@@ -355,6 +405,110 @@ class ApiServer {
     this.app.get('/metrics/queries', (_req, res) => {
       res.json(getQueryMetrics());
     });
+
+    // Issue #216 – Circuit breaker health endpoint
+    this.app.get('/health/circuit-breaker', (_req, res) => {
+      const cb = getDbCircuitBreaker(this.logger);
+      res.json({
+        db: cb.getStats(),
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    // Issue #214 – Bulk data export REST endpoint
+    this.app.get('/api/export/:entityType', async (req, res) => {
+      try {
+        const { entityType } = req.params;
+        const format = (req.query.format as string) || 'json';
+        const startTime = req.query.startTime as string | undefined;
+        const endTime = req.query.endTime as string | undefined;
+
+        if (!['transactions', 'ledgers', 'operations'].includes(entityType)) {
+          res.status(400).json({ error: 'Invalid entity type. Must be transactions, ledgers, or operations.' });
+          return;
+        }
+
+        if (!['json', 'csv'].includes(format)) {
+          res.status(400).json({ error: 'Invalid format. Must be json or csv.' });
+          return;
+        }
+
+        let whereClause = 'WHERE 1=1';
+        const params: unknown[] = [];
+        let paramIndex = 1;
+
+        if (startTime) {
+          whereClause += ` AND created_at >= $${paramIndex++}`;
+          params.push(startTime);
+        }
+        if (endTime) {
+          whereClause += ` AND created_at <= $${paramIndex++}`;
+          params.push(endTime);
+        }
+
+        let query = '';
+        switch (entityType) {
+          case 'transactions':
+            query = `
+              SELECT hash, ledger_sequence, successful, fee_charged, operation_count,
+                     source_account, created_at, memo_type, memo
+              FROM transactions ${whereClause}
+              ORDER BY created_at DESC
+              LIMIT 10000
+            `;
+            break;
+          case 'ledgers':
+            query = `
+              SELECT sequence, successful_transaction_count, failed_transaction_count,
+                     operation_count, closed_at, base_fee_in_stroops, protocol_version
+              FROM ledgers ${whereClause}
+              ORDER BY sequence DESC
+              LIMIT 10000
+            `;
+            break;
+          case 'operations':
+            query = `
+              SELECT id, transaction_hash, type, source_account, ledger_sequence,
+                     operation_index, details, created_at
+              FROM operations ${whereClause}
+              ORDER BY created_at DESC
+              LIMIT 10000
+            `;
+            break;
+        }
+
+        const rows = await db.query(query, params);
+
+        if (format === 'csv') {
+          res.setHeader('Content-Type', 'text/csv');
+          res.setHeader('Content-Disposition', `attachment; filename="${entityType}_export.csv"`);
+          if (rows.length === 0) {
+            res.send('');
+            return;
+          }
+          const headers = Object.keys(rows[0]);
+          const csvLines = [headers.join(',')];
+          for (const row of rows) {
+            const values = headers.map((h) => {
+              const val = row[h];
+              const str = val === null || val === undefined ? '' : String(val);
+              return str.includes(',') || str.includes('"') || str.includes('\n')
+                ? `"${str.replace(/"/g, '""')}"`
+                : str;
+            });
+            csvLines.push(values.join(','));
+          }
+          res.send(csvLines.join('\n'));
+        } else {
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Content-Disposition', `attachment; filename="${entityType}_export.json"`);
+          res.json(rows);
+        }
+      } catch (error: any) {
+        this.logger.error('Export endpoint error', { error: error?.message });
+        res.status(500).json({ error: 'Export failed', message: error?.message });
+      }
+    });
   }
 
   private setupApolloServer(): void {
@@ -363,51 +517,66 @@ class ApiServer {
 
     const plugins: any[] = [
       {
-        requestDidStart() {
+        requestDidStart(requestContext: any) {
           const startTime = Date.now();
+          const trace: TraceContext = requestContext.context?.trace;
+          
+          // Set trace ID as response header for distributed tracing
+          if (trace && requestContext.response?.http) {
+            requestContext.response.http.headers.set(
+              getTraceResponseHeader(),
+              trace.requestId
+            );
+          }
+          
           return {
             didResolveOperation(ctx: any) {
               const operation = ctx.request.operationName || 'anonymous';
               const user = ctx.context.user;
               const userId = user ? user.id : 'anonymous';
-
-              // Query complexity analysis
-              const complexity = calculateQueryComplexity(ctx.document, ctx.request.variables);
+              
+              // Update trace context with operation name
+              if (trace) {
+                trace.operationName = operation;
+              }
+              
               logger.info('GraphQL operation resolved', {
                 operation,
                 userId,
-                complexity,
+                traceId: trace?.requestId,
                 variables: ctx.request.variables,
               });
 
               if (complexity > MAX_QUERY_COMPLEXITY) {
                 throw new Error(
                   `Query complexity ${complexity} exceeds the maximum allowed complexity of ${MAX_QUERY_COMPLEXITY}. ` +
-                  `Reduce the number of requested fields or lower the pagination limit.`
+                    `Reduce the number of requested fields or lower the pagination limit.`
                 );
               }
             },
             didEncounterErrors(ctx: any) {
               logger.error('GraphQL operation errors', {
                 operation: ctx.request.operationName,
+                traceId: trace?.requestId,
                 errors: ctx.errors,
               });
             },
-             willSendResponse(ctx: any) {
-               const duration = Date.now() - startTime;
-               if (duration > 30000) {
-                 logger.error('GraphQL query timeout exceeded', {
-                   operation: ctx.request.operationName,
-                   duration,
-                 });
-               } else if (duration > 1000) {
-                 logger.warn('Slow GraphQL query detected', {
-                   operation: ctx.request.operationName,
-                   duration,
-                 });
-               }
-             },
-
+            willSendResponse(ctx: any) {
+              const duration = Date.now() - startTime;
+              
+              // Log trace summary for every request
+              if (trace) {
+                logTrace(trace, logger);
+              }
+              
+              if (duration > 1000) {
+                logger.warn('Slow GraphQL query detected', {
+                  operation: ctx.request.operationName,
+                  traceId: trace?.requestId,
+                  duration,
+                });
+              }
+            },
           };
         },
       },
@@ -420,6 +589,9 @@ class ApiServer {
     this.apolloServer = new ApolloServer({
       typeDefs,
       resolvers,
+      schemaDirectives: {
+        auth: AuthDirective,
+      },
       context: ({ req }) => {
         let user = null;
         const token = authService.extractToken(req.headers.authorization);
@@ -444,20 +616,29 @@ class ApiServer {
           }
         }
 
+        // Create trace context for this request
+        const incomingTraceId = extractTraceId(req.headers as Record<string, string | string[] | undefined>);
+        const trace = createTraceContext(incomingTraceId, user?.id, undefined);
+
         return {
           req,
           user,
           db,
           loaders: createLoaders(),
           logger: this.logger,
+          trace,
           authService,
         };
       },
       introspection: !isProduction,
-      validationRules: [
-        depthLimit(10) as any,
-      ],
+      validationRules: [depthLimit(10) as any],
       plugins,
+      // Issue #217 – Enable automatic persisted queries to reduce payload size
+      // Clients can send a hash of the query instead of the full query text.
+      // Falls back to full query if hash is not found in the APQ cache.
+      persistedQueries: {
+        cache: new Map<string, string>(),
+      },
     });
   }
 
@@ -468,6 +649,10 @@ class ApiServer {
       this.validateEnvironment();
       await db.connect();
       this.logger.info('Database connections established');
+
+      // Initialise performance alerting (reads env vars automatically)
+      const perfAlerting = initPerfAlerting(this.logger);
+      perfAlerting.startHealthPolling(() => db.healthCheck());
 
       await this.apolloServer.start();
       this.logger.info('Apollo Server started');
@@ -508,67 +693,40 @@ class ApiServer {
     useServer(
       {
         schema,
-        context: async (ctx: any, msg: any, args: any) => {
+        context: async (ctx: any, msg: any, _args: any) => {
           const connectionParams = ctx?.connectionParams || {};
-          const authorization = connectionParams?.authorization || msg?.payload?.headers?.authorization;
-          const apiKey = connectionParams?.['x-api-key'] || msg?.payload?.headers?.['x-api-key'];
-          
-          let user = null;
-          
-          // Try JWT token authentication
-          const token = authService.extractToken(authorization);
-          if (token) {
-            const payload = authService.verifyToken(token);
-            if (payload) {
-              user = {
-                id: payload.userId,
-                email: payload.email,
-                role: payload.role,
-              };
+          const token = connectionParams?.token || msg?.payload?.headers?.authorization?.replace('Bearer ', '');
+
+          if (process.env.JWT_SECRET && token) {
+            try {
+              const user = verify(token, process.env.JWT_SECRET);
+              return { db, loaders: createLoaders(), logger: this.logger, user };
+            } catch (err) {
+              throw new Error('Invalid authentication token');
             }
           }
-          
-          // Try API key authentication if JWT failed
-          if (!user && apiKey && authService.validateApiKey(apiKey)) {
-            user = { id: 'api-user', email: 'api@stellar-analytics', role: 'user' };
-          }
-          
-          return {
-            db,
-            loaders: createLoaders(),
-            logger: this.logger,
-            user,
-            authService,
-          };
+
+          return { db, loaders: createLoaders(), logger: this.logger };
         },
         onConnect: (ctx: any) => {
           const ip = ctx?.request?.socket?.remoteAddress || 'unknown';
-          const connectionParams = ctx?.connectionParams || {};
-          
+
           if (!checkSubscriptionRateLimit(ip)) {
             throw new Error('Subscription rate limit exceeded');
           }
-          
-          const hasToken = !!connectionParams?.token || !!connectionParams?.authorization;
-          const hasApiKey = !!connectionParams?.['x-api-key'];
-          const authenticated = hasToken || hasApiKey;
-          
-          this.logger.info('WebSocket client connected', { 
-            ip, 
-            authenticated,
-            authMethod: hasToken ? 'jwt' : hasApiKey ? 'api-key' : 'none',
-          });
-          return { ip, authenticated };
+
+          this.logger.info('WebSocket client connected', { ip });
+          return { ip, authenticated: !!ctx?.connectionParams?.token };
         },
         onSubscribe: (ctx: any, msg: any) => {
           const ip = ctx?.ip || 'unknown';
-          
+
           if (!checkEventRateLimit(ip)) {
             throw new Error('Event rate limit exceeded');
           }
-          
-          this.logger.info('WebSocket subscription started', { 
-            ip, 
+
+          this.logger.info('WebSocket subscription started', {
+            ip,
             query: msg?.payload?.query?.substring(0, 100),
           });
         },
@@ -585,12 +743,9 @@ class ApiServer {
   }
 
   private validateEnvironment(): void {
-    const requiredEnvVars = [
-      'DATABASE_URL',
-      'REDIS_URL',
-    ];
+    const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL'];
 
-    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+    const missingVars = requiredEnvVars.filter((varName) => !process.env[varName]);
 
     if (missingVars.length > 0) {
       throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
@@ -601,6 +756,7 @@ class ApiServer {
     this.logger.info('Shutting down server...');
 
     try {
+      getPerfAlerting()?.stopHealthPolling();
       this.realtimePublisher.stop();
       await this.apolloServer.stop();
       await db.disconnect();

@@ -55,7 +55,9 @@
     "createdAt": "Créé À",
     "noData": "Aucune transaction disponible pour le moment. L'indexeur est peut-être encore en synchronisation.",
     "success": "Succès",
-    "failed": "Échec"
+    "failed": "Échec",
+    "filteredByDrillDown": "Transactions affichées du {{from}} au {{to}}",
+    "clearFilter": "Effacer le filtre"
   },
   "pagination": {
     "itemsPerPage": "Éléments par page",
@@ -67,6 +69,7 @@
   },
   "chart": {
     "transactionVolume24h": "Volume des Transactions (24h)",
+    "networkComparison": "Comparaison de réseau",
     "loading": "Chargement du graphique de transactions",
     "noData": "Aucune donnée disponible pour le moment. L'indexeur est peut-être encore en synchronisation.",
     "totalTxs": "Total des txs",
@@ -75,5 +78,15 @@
     "autoRefresh": "actualisation automatique toutes les 30s",
     "updating": "Mise à jour…",
     "refreshChart": "Actualiser le graphique"
+  },
+  "freshness": {
+    "justNow": "À l'instant",
+    "minutesAgo": "il y a {{count}} minute",
+    "minutesAgo_plural": "il y a {{count}} minutes",
+    "hoursAgo": "il y a {{count}} heure",
+    "hoursAgo_plural": "il y a {{count}} heures",
+    "daysAgo": "il y a {{count}} jour",
+    "daysAgo_plural": "il y a {{count}} jours",
+    "lastUpdated": "Dernière mise à jour"
   }
 }

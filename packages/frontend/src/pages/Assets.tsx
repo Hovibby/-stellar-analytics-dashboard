@@ -3,7 +3,8 @@ import { useQuery } from '@apollo/client';
 import { ASSET_METRICS_QUERY } from '@/graphql/queries';
 import { DataTable } from '@/components/DataTable';
 import { FilterBar, FilterRow, ToggleGroup, RangeInput } from '@/components/FilterBar';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, type TooltipProps } from 'recharts';
+import { ChartTooltip } from '@/components/ChartTooltip';
 import { Coins, ArrowRightLeft, DollarSign, RefreshCcw, Search } from 'lucide-react';
 import { MetricCard } from '@/components/MetricCard';
 import { useFilterSort } from '@/hooks/useFilterSort';
@@ -102,6 +103,18 @@ export function Assets() {
     name: m.asset.native ? 'XLM' : m.asset.assetCode,
     volume: parseFloat(m.volume24h ?? '0'),
   }));
+
+  function VolumeTooltip({ active, payload }: TooltipProps<number, string>) {
+    if (!active || !payload?.length) return null;
+    const d = payload[0]?.payload as { name: string; volume: number } | undefined;
+    if (!d) return null;
+    return (
+      <ChartTooltip
+        header={<span>{d.name}</span>}
+        rows={[{ label: '24h Volume', value: `${d.volume.toLocaleString(undefined, { maximumFractionDigits: 0 })} XLM`, color: 'hsl(var(--primary))', dot: true }]}
+      />
+    );
+  }
 
   // ── presets ────────────────────────────────────────────────────────────────
 
@@ -343,12 +356,7 @@ export function Assets() {
                 />
                 <Tooltip
                   cursor={{ fill: 'hsl(var(--muted)/0.2)' }}
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                  }}
+                  content={<VolumeTooltip />}
                 />
                 <Bar dataKey="volume" radius={[0, 4, 4, 0]} barSize={18}>
                   {chartData.map((_: any, index: number) => (

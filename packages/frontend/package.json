@@ -10,8 +10,13 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext ts,tsx --fix",
+    "lint:graphql": "eslint src/graphql --ext .ts,.tsx,.graphql --report-unused-disable-directives --max-warnings 0",
+    "lint:graphql:fix": "eslint src/graphql --ext .ts,.tsx,.graphql --fix",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "storybook": "storybook dev -p 6006",
+    "storybook:build": "storybook build -o storybook-static",
+    "storybook:test": "test-storybook"
   },
   "dependencies": {
     "@apollo/client": "^3.8.8",
@@ -36,6 +41,15 @@
     "zustand": "^4.4.7"
   },
   "devDependencies": {
+    "@chromatic-com/storybook": "^3.2.6",
+    "@storybook/addon-a11y": "^8.4.7",
+    "@storybook/addon-essentials": "^8.4.7",
+    "@storybook/addon-interactions": "^8.4.7",
+    "@storybook/react": "^8.4.7",
+    "@storybook/react-vite": "^8.4.7",
+    "@storybook/test": "^8.4.7",
+    "@storybook/test-runner": "^0.19.1",
+    "storybook": "^8.4.7",
     "@testing-library/jest-dom": "6.4.6",
     "@testing-library/react": "14.3.1",
     "@testing-library/user-event": "14.5.2",
@@ -54,6 +68,7 @@
     "tailwindcss": "^3.3.6",
     "typescript": "^5.2.2",
     "vite": "^4.5.0",
-    "vitest": "1"
+    "vitest": "1",
+    "@graphql-eslint/eslint-plugin": "^3.20.1"
   }
 }

@@ -93,6 +93,19 @@ pnpm --filter @stellar-analytics/frontend dev
 - API GraphQL + playground: `http://localhost:4000/graphql`
 - Frontend (Vite): `http://localhost:5173`
 
+## API Examples
+
+Ready-to-run GraphQL examples for the **dashboard**, **account** and
+**network analytics** endpoint families (with cURL invocations and
+expected responses) live in [`docs/api-examples.md`](docs/api-examples.md).
+
+See also:
+
+- [`docs/graphql-query-standards.md`](docs/graphql-query-standards.md) — naming & linting rules
+- [`docs/graphql-query-limits.md`](docs/graphql-query-limits.md) — depth and complexity limits
+- [`docs/query-performance.md`](docs/query-performance.md) — DataLoader batching & slow-query monitoring
+
+
 ## Database Migrations
 
 Schema changes are managed with `node-pg-migrate`:

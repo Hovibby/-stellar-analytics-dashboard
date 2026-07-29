@@ -16,7 +16,12 @@
 import { Horizon } from '@stellar/stellar-sdk';
 import { StellarService } from './stellar-service';
 import { db } from '../database/connection';
-import { INDEXER, PAYMENT_OPERATIONS, DEX_OPERATIONS } from '@stellar-analytics/shared';
+import {
+  INDEXER,
+  PAYMENT_OPERATIONS,
+  DEX_OPERATIONS,
+  getCachedIndexerConfig,
+} from '@stellar-analytics/shared';
 import { CircuitOpenError } from '../circuit-breaker/CircuitBreaker';
 import { metrics } from '../metrics/IndexerMetrics';
 import { IdempotencyTracker } from '../idempotency/IdempotencyTracker';
@@ -29,6 +34,41 @@ import {
   validateRecords,
 } from '../validation/schemas';
 import { dlq } from '../error-recovery/DeadLetterQueue';
+import {
+  TransactionTracking,
+  TX_IDEMPOTENCY_PREFIX,
+} from '../idempotency/IdempotencyTracker';
+import { BackfillCheckpointManager } from '../backfill/BackfillCheckpointManager';
+import { GapDetector, type GapDetectionReport, type GapRecoveryResult } from '../backfill/GapDetectionService';
+import { IngestionProgressTracker, type ProgressSnapshot, type ProgressHistoryEntry } from '../backfill/IngestionProgressTracker';
+
+export interface IndexerServiceOptions {
+  /**
+   * Number of ledgers to fetch per backfill batch.
+   * Defaults to INDEXER.BACKFILL_BATCH_SIZE (1000), overridable via
+   * the BACKFILL_BATCH_SIZE env var.
+   */
+  backfillBatchSize?: number;
+
+  /**
+   * Number of ledgers to process per batch during real-time ingestion.
+   * Defaults to INDEXER.BATCH_SIZE (100), overridable via
+   * the LEDGER_BATCH_SIZE env var.
+   */
+  ledgerBatchSize?: number;
+
+  /**
+   * Number of transactions to batch per DB insert.
+   * Default 50.
+   */
+  transactionBatchSize?: number;
+
+  /**
+   * Number of operations to batch per DB insert.
+   * Default 100.
+   */
+  operationBatchSize?: number;
+}
 
 export class IndexerService {
   private stellarService: StellarService;
@@ -39,9 +79,29 @@ export class IndexerService {
 
   private readonly idempotency: IdempotencyTracker;
   private readonly rateLimiter: RateLimiter;
+  private checkpointManager: BackfillCheckpointManager | null = null;
+  readonly progressTracker: IngestionProgressTracker = new IngestionProgressTracker();
 
-  constructor(stellarService: StellarService) {
+  /** Configured batch sizes */
+  readonly backfillBatchSize: number;
+  readonly ledgerBatchSize: number;
+  readonly transactionBatchSize: number;
+  readonly operationBatchSize: number;
+
+  constructor(
+    stellarService: StellarService,
+    options: IndexerServiceOptions = {},
+  ) {
     this.stellarService = stellarService;
+
+    // Resolve batch sizes: explicit options > env vars > defaults
+    const cfg = getCachedIndexerConfig();
+    this.backfillBatchSize = options.backfillBatchSize ?? cfg.backfillBatchSize;
+    this.ledgerBatchSize = options.ledgerBatchSize ?? cfg.ledgerBatchSize;
+    this.transactionBatchSize =
+      options.transactionBatchSize ?? cfg.transactionBatchSize;
+    this.operationBatchSize =
+      options.operationBatchSize ?? cfg.operationBatchSize;
 
     // Issue #37 – Rate limiter for Horizon API: 2000 requests per minute
     this.rateLimiter = new RateLimiter({
@@ -90,7 +150,27 @@ export class IndexerService {
   // ---------------------------------------------------------------------------
 
   private async initializeLastProcessedLedger(): Promise<void> {
-    // Prefer the idempotency table as the source of truth
+    // Prefer the backfill checkpoint as the source of truth (most recent resume point)
+    const ckpt = new BackfillCheckpointManager({
+      pool: db.getPool(),
+      jobId: 'indexer-realtime',
+      network: 'public',
+      startSequence: 1,
+      endSequence: Number.MAX_SAFE_INTEGER,
+    });
+    await ckpt.ensureTable();
+    const resumable = await ckpt.findResumableJob();
+
+    if (resumable?.lastProcessedSequence) {
+      this.lastProcessedLedger = resumable.lastProcessedSequence;
+      console.log(
+        `[indexer] resuming from backfill checkpoint at ledger ${this.lastProcessedLedger}`,
+      );
+      metrics.lastProcessedLedger.set(this.lastProcessedLedger);
+      return;
+    }
+
+    // Fall back to the idempotency table
     const lastIdempotent = await this.idempotency.getLastProcessedSequence();
 
     if (lastIdempotent !== null) {
@@ -221,28 +301,153 @@ export class IndexerService {
       return;
     }
 
-    await this.backfillLedgers(startSequence, resolvedEnd);
+    // ── Checkpoint-resumable backfill ───────────────────────────────────────
+    // Before starting, check if there's an existing checkpoint for this range
+    const jobId = `backfill:${startSequence}-${resolvedEnd}`;
+    const ckpt = new BackfillCheckpointManager({
+      pool: db.getPool(),
+      jobId,
+      network: 'public',
+      startSequence,
+      endSequence: resolvedEnd,
+    });
+    await ckpt.ensureTable();
+
+    const existingJob = await ckpt.loadJob();
+    let effectiveStart = startSequence;
+
+    if (
+      existingJob &&
+      existingJob.status === 'in_progress' &&
+      existingJob.lastProcessedSequence
+    ) {
+      effectiveStart = existingJob.lastProcessedSequence + 1;
+      console.log(
+        `[indexer] found resumable backfill – resuming from ledger ${effectiveStart}`,
+      );
+    }
+
+    await this.backfillLedgers(effectiveStart, resolvedEnd);
   }
 
   private async backfillLedgers(startSequence: number, endSequence: number): Promise<void> {
     console.log(`[indexer] backfilling ledgers ${startSequence} → ${endSequence}`);
+    console.log(`[indexer] batch size: ${this.backfillBatchSize} ledgers per batch`);
 
-    for (
-      let sequence = startSequence;
-      sequence <= endSequence;
-      sequence += INDEXER.BACKFILL_BATCH_SIZE
+    // ── Checkpoint setup ────────────────────────────────────────────────────
+    const jobId = `backfill:${startSequence}-${endSequence}`;
+    const ckpt = new BackfillCheckpointManager({
+      pool: db.getPool(),
+      jobId,
+      network: 'public',
+      startSequence,
+      endSequence,
+    });
+    await ckpt.ensureTable();
+
+    // Check if there is a resumable checkpoint for this range
+    const existingJob = await ckpt.loadJob();
+    let resumeFrom = startSequence;
+    let processed = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    if (
+      existingJob &&
+      existingJob.status === 'in_progress' &&
+      existingJob.lastProcessedSequence
     ) {
-      if (!this.isRunning) break;
+      resumeFrom = existingJob.lastProcessedSequence + 1;
+      processed = existingJob.processedCount;
+      skipped = existingJob.skippedCount;
+      failed = existingJob.failedCount;
+      console.log(
+        `[indexer] resuming backfill from checkpoint at ledger ${resumeFrom} ` +
+          `(processed=${processed}, skipped=${skipped}, failed=${failed})`,
+      );
+    } else {
+      await ckpt.createJob();
+    }
 
-      const batchEnd = Math.min(sequence + INDEXER.BACKFILL_BATCH_SIZE - 1, endSequence);
+    // ── Initialize progress tracker ────────────────────────────────────────
+    const totalLedgers = this.endSequence - this.startSequence + 1; // Actually from args
+    this.progressTracker.startTracking(endSequence - startSequence + 1);
+
+    // ── Batch loop with checkpoint persistence ──────────────────────────────
+    for (
+      let sequence = resumeFrom;
+      sequence <= endSequence;
+      sequence += this.backfillBatchSize
+    ) {
+      if (!this.isRunning) {
+        await ckpt.markCancelled({
+          lastProcessedSequence: sequence - 1,
+          processedCount: processed,
+          skippedCount: skipped,
+          failedCount: failed,
+        });
+        break;
+      }
+
+      const batchEnd = Math.min(sequence + this.backfillBatchSize - 1, endSequence);
 
       try {
         await this.processLedgerBatch(sequence, batchEnd);
         console.log(`[indexer] backfilled ledgers ${sequence} → ${batchEnd}`);
+
+        // Update progress (approximate: we don't know exact per-ledger results here,
+        // the per-ledger idempotency tracking handles dedup)
+        processed += batchEnd - sequence + 1;
+
+        // ── Update progress tracker ───────────────────────────────────────
+        this.progressTracker.updateProgress({
+          processed,
+          skipped,
+          failed,
+          total: endSequence - startSequence + 1,
+        });
+
+        // ── Persist checkpoint after each batch ───────────────────────────
+        await ckpt.saveCheckpoint({
+          lastProcessedSequence: batchEnd,
+          processedCount: processed,
+          skippedCount: skipped,
+          failedCount: failed,
+        });
       } catch (error) {
-        console.error(`[indexer] error backfilling ledgers ${sequence} → ${batchEnd}:`, error);
+        const errMsg =
+          error instanceof Error ? error.message : String(error);
+        console.error(
+          `[indexer] error backfilling ledgers ${sequence} → ${batchEnd}:`,
+          error,
+        );
         metrics.errorsTotal.inc({ type: 'backfill' });
+
+        // ── Mark failed checkpoint ────────────────────────────────────────
+        await ckpt.markFailed(errMsg, {
+          lastProcessedSequence: sequence - 1,
+          processedCount: processed,
+          skippedCount: skipped,
+          failedCount,
+        });
       }
+    }
+
+    // ── Mark completed if all ledgers processed ──────────────────────────
+    // We don't know the exact skipped/failed counts at this level, but we can
+    // check if we reached endSequence
+    const lastSeq = existingJob?.lastProcessedSequence
+      ? Math.max(existingJob.lastProcessedSequence, resumeFrom - 1) + (processed + skipped)
+      : resumeFrom - 1 + processed + skipped;
+
+    if (lastSeq >= endSequence) {
+      await ckpt.markCompleted({
+        lastProcessedSequence: endSequence,
+        processedCount: processed,
+        skippedCount: skipped,
+        failedCount: failed,
+      });
+      this.progressTracker.finishTracking();
     }
   }
 
@@ -424,10 +629,41 @@ export class IndexerService {
       );
     }
 
+    // ── Duplicate transaction detection ────────────────────────────────────
+    const txHashes = transactions.map(
+      (tx) => (tx as any).hash as string,
+    );
+
+    const { duplicates } =
+      await TransactionTracking.filterDuplicateTxHashes(
+        this.idempotency,
+        txHashes,
+      );
+
+    if (duplicates.length > 0) {
+      metrics.duplicateTransactionsSkipped.inc(duplicates.length);
+      console.log(
+        `[indexer] skipping ${duplicates.length} duplicate transaction(s) in ` +
+          `ledger ${ledgerSequence}: ${duplicates.slice(0, 5).join(', ')}` +
+          (duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''),
+      );
+    }
+
+    // ── Process only unprocessed transactions ──────────────────────────────
+    const duplicateSet = new Set(duplicates);
     for (const tx of transactions) {
-      await this.processTransaction(
-        tx as unknown as Horizon.ServerApi.TransactionRecord,
-        client,
+      const txRecord = tx as unknown as Horizon.ServerApi.TransactionRecord;
+
+      // Skip if this transaction was already processed
+      if (duplicateSet.has(txRecord.hash)) continue;
+
+      await this.processTransaction(txRecord, client);
+
+      // Mark as processed immediately (so subsequent retries skip it)
+      await TransactionTracking.markTransactionProcessed(
+        this.idempotency,
+        txRecord.hash,
+        ledgerSequence,
       );
     }
   }
@@ -614,10 +850,43 @@ export class IndexerService {
       case 'manage_sell_offer':
         return {
           ...base,
-          selling_asset: operation.selling_asset,
-          buying_asset: operation.buying_asset,
+          selling_asset_type: operation.selling_asset_type,
+          selling_asset_code: operation.selling_asset_code,
+          selling_asset_issuer: operation.selling_asset_issuer,
+          buying_asset_type: operation.buying_asset_type,
+          buying_asset_code: operation.buying_asset_code,
+          buying_asset_issuer: operation.buying_asset_issuer,
           amount: operation.amount,
           price: operation.price,
+          price_r: operation.price_r,
+          offer_id: operation.offer_id,
+        };
+      case 'manage_buy_offer':
+        return {
+          ...base,
+          selling_asset_type: operation.selling_asset_type,
+          selling_asset_code: operation.selling_asset_code,
+          selling_asset_issuer: operation.selling_asset_issuer,
+          buying_asset_type: operation.buying_asset_type,
+          buying_asset_code: operation.buying_asset_code,
+          buying_asset_issuer: operation.buying_asset_issuer,
+          amount: operation.amount,
+          price: operation.price,
+          price_r: operation.price_r,
+          offer_id: operation.offer_id,
+        };
+      case 'create_passive_sell_offer':
+        return {
+          ...base,
+          selling_asset_type: operation.selling_asset_type,
+          selling_asset_code: operation.selling_asset_code,
+          selling_asset_issuer: operation.selling_asset_issuer,
+          buying_asset_type: operation.buying_asset_type,
+          buying_asset_code: operation.buying_asset_code,
+          buying_asset_issuer: operation.buying_asset_issuer,
+          amount: operation.amount,
+          price: operation.price,
+          price_r: operation.price_r,
           offer_id: operation.offer_id,
         };
       case 'path_payment_strict_receive':
@@ -631,6 +900,23 @@ export class IndexerService {
           destination_asset: operation.destination_asset,
           destination_min: operation.destination_min,
           path: operation.path,
+          asset_type: operation.asset_type,
+          asset_code: operation.asset_code,
+          asset_issuer: operation.asset_issuer,
+        };
+      case 'path_payment_strict_send':
+        return {
+          ...base,
+          from: operation.from,
+          to: operation.to,
+          amount: operation.amount,
+          source_amount: operation.source_amount,
+          destination_min: operation.destination_min,
+          destination_asset: operation.destination_asset,
+          path: operation.path,
+          asset_type: operation.asset_type,
+          asset_code: operation.asset_code,
+          asset_issuer: operation.asset_issuer,
         };
       case 'change_trust':
         return {
@@ -641,6 +927,133 @@ export class IndexerService {
           trustor: operation.trustor,
           trustee: operation.trustee,
           limit: operation.limit,
+        };
+      case 'allow_trust':
+        return {
+          ...base,
+          trustor: operation.trustor,
+          trustee: operation.trustee,
+          asset_type: operation.asset_type,
+          asset_code: operation.asset_code,
+          authorize: operation.authorize,
+          authorize_to_maintain_liabilities: operation.authorize_to_maintain_liabilities,
+        };
+      case 'set_options':
+        return {
+          ...base,
+          signer_key: operation.signer_key,
+          signer_weight: operation.signer_weight,
+          master_key_weight: operation.master_key_weight,
+          low_threshold: operation.low_threshold,
+          med_threshold: operation.med_threshold,
+          high_threshold: operation.high_threshold,
+          home_domain: operation.home_domain,
+          set_flags: operation.set_flags,
+          set_flags_s: operation.set_flags_s,
+          clear_flags: operation.clear_flags,
+          clear_flags_s: operation.clear_flags_s,
+        };
+      case 'account_merge':
+        return {
+          ...base,
+          account: operation.account,
+          into: operation.into,
+        };
+      case 'inflation':
+        return {
+          ...base,
+        };
+      case 'manage_data':
+        return {
+          ...base,
+          name: operation.name,
+          value: operation.value,
+        };
+      case 'bump_sequence':
+        return {
+          ...base,
+          bump_to: operation.bump_to,
+        };
+      case 'claim_claimable_balance':
+        return {
+          ...base,
+          balance_id: operation.balance_id,
+          claimant: operation.claimant,
+        };
+      case 'begin_sponsoring_future_reserves':
+        return {
+          ...base,
+          sponsored_id: operation.sponsored_id,
+        };
+      case 'end_sponsoring_future_reserves':
+        return {
+          ...base,
+          begin_sponsor: operation.begin_sponsor,
+        };
+      case 'revoke_sponsorship':
+        return {
+          ...base,
+          account_id: operation.account_id,
+          claimable_balance_id: operation.claimable_balance_id,
+          liquidity_pool_id: operation.liquidity_pool_id,
+          offer_id: operation.offer_id,
+          trustline_account: operation.trustline_account,
+          trustline_asset: operation.trustline_asset,
+          signer_account: operation.signer_account,
+          signer_key: operation.signer_key,
+        };
+      case 'clawback':
+        return {
+          ...base,
+          from: operation.from,
+          amount: operation.amount,
+          asset_type: operation.asset_type,
+          asset_code: operation.asset_code,
+          asset_issuer: operation.asset_issuer,
+        };
+      case 'clawback_claimable_balance':
+        return {
+          ...base,
+          balance_id: operation.balance_id,
+        };
+      case 'set_trust_line_flags':
+        return {
+          ...base,
+          trustor: operation.trustor,
+          asset_type: operation.asset_type,
+          asset_code: operation.asset_code,
+          asset_issuer: operation.asset_issuer,
+          set_flags: operation.set_flags,
+          set_flags_s: operation.set_flags_s,
+          clear_flags: operation.clear_flags,
+          clear_flags_s: operation.clear_flags_s,
+        };
+      case 'liquidity_pool_deposit':
+        return {
+          ...base,
+          liquidity_pool_id: operation.liquidity_pool_id,
+          max_amount_a: operation.max_amount_a,
+          max_amount_b: operation.max_amount_b,
+          min_price: operation.min_price,
+          max_price: operation.max_price,
+          shares_received: operation.shares_received,
+          price_r: operation.price_r,
+        };
+      case 'liquidity_pool_withdraw':
+        return {
+          ...base,
+          liquidity_pool_id: operation.liquidity_pool_id,
+          shares: operation.shares,
+          min_amount_a: operation.min_amount_a,
+          min_amount_b: operation.min_amount_b,
+        };
+      case 'invoke_host_function':
+        return {
+          ...base,
+          function: operation.function,
+          parameters: operation.parameters,
+          address: operation.address,
+          salt: operation.salt,
         };
       default:
         return base;
@@ -744,6 +1157,12 @@ export class IndexerService {
     horizonUrl: string;
     circuitBreaker: ReturnType<StellarService['getCircuitBreakerStats']>;
     idempotencyCacheSize: number;
+    batchConfig: {
+      backfillBatchSize: number;
+      ledgerBatchSize: number;
+      transactionBatchSize: number;
+      operationBatchSize: number;
+    };
   }> {
     return {
       isRunning: this.isRunning,
@@ -751,7 +1170,76 @@ export class IndexerService {
       horizonUrl: this.stellarService.getHorizonUrl(),
       circuitBreaker: this.stellarService.getCircuitBreakerStats(),
       idempotencyCacheSize: this.idempotency.cacheSize(),
+      batchConfig: {
+        backfillBatchSize: this.backfillBatchSize,
+        ledgerBatchSize: this.ledgerBatchSize,
+        transactionBatchSize: this.transactionBatchSize,
+        operationBatchSize: this.operationBatchSize,
+      },
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Progress Tracking
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get the current ingestion progress snapshot.
+   */
+  getProgressSnapshot(): ProgressSnapshot {
+    return this.progressTracker.getSnapshot();
+  }
+
+  /**
+   * Get ingestion progress history for trend analysis.
+   */
+  getProgressHistory(): ProgressHistoryEntry[] {
+    return this.progressTracker.getHistory();
+  }
+
+  /**
+   * Get elapsed time since ingestion started.
+   */
+  getIngestionElapsedMs(): number {
+    return this.progressTracker.getElapsedMs();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Gap Detection & Recovery
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Detect missing ledger gaps using multiple strategies.
+   */
+  async detectGaps(): Promise<GapDetectionReport> {
+    const detector = new GapDetector(
+      db.getPool(),
+      this.stellarService,
+      this.idempotency,
+    );
+    return detector.generateReport();
+  }
+
+  /**
+   * Recover missing ledgers by backfilling detected gaps.
+   */
+  async recoverMissingLedgers(): Promise<GapRecoveryResult> {
+    const detector = new GapDetector(
+      db.getPool(),
+      this.stellarService,
+      this.idempotency,
+    );
+
+    console.log('[indexer] starting gap detection and recovery...');
+
+    return detector.recoverMissingLedgers(
+      async (startSeq, endSeq) => {
+        await this.backfillLedgers(startSeq, endSeq);
+      },
+      (message) => {
+        console.log(`[indexer] gap recovery: ${message}`);
+      },
+    );
   }
 
   /** Manually reset the circuit breaker (e.g. from an admin endpoint). */

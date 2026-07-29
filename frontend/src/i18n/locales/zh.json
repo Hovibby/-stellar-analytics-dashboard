@@ -55,7 +55,9 @@
     "createdAt": "创建时间",
     "noData": "暂无交易可用。索引器可能仍在同步中。",
     "success": "成功",
-    "failed": "失败"
+    "failed": "失败",
+    "filteredByDrillDown": "显示 {{from}} 至 {{to}} 的交易",
+    "clearFilter": "清除筛选"
   },
   "pagination": {
     "itemsPerPage": "每页项目数",
@@ -67,6 +69,7 @@
   },
   "chart": {
     "transactionVolume24h": "交易量（24小时）",
+    "networkComparison": "网络比较",
     "loading": "正在加载交易图表",
     "noData": "暂无数据可用。索引器可能仍在同步中。",
     "totalTxs": "总交易数",
@@ -75,5 +78,15 @@
     "autoRefresh": "每30秒自动刷新",
     "updating": "更新中…",
     "refreshChart": "刷新图表"
+  },
+  "freshness": {
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}}分钟前",
+    "minutesAgo_plural": "{{count}}分钟前",
+    "hoursAgo": "{{count}}小时前",
+    "hoursAgo_plural": "{{count}}小时前",
+    "daysAgo": "{{count}}天前",
+    "daysAgo_plural": "{{count}}天前",
+    "lastUpdated": "最后更新"
   }
 }
