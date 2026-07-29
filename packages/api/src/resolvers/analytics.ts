@@ -8,6 +8,22 @@ import { Connection, PaginationArgs } from '@stellar-analytics/shared';
 import { createConnection } from '../utils/pagination';
 import { buildOrderByClause, OrderByClause } from '../utils/sorting';
 
+function resolvePreset(preset: string): { startTime: string; endTime: string } {
+  const now = new Date();
+  switch (preset) {
+    case 'LAST_HOUR':
+      return { startTime: new Date(now.getTime() - 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case 'LAST_DAY':
+      return { startTime: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case 'LAST_WEEK':
+      return { startTime: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case 'LAST_MONTH':
+      return { startTime: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    default:
+      return { startTime: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+  }
+}
+
 const OPERATION_SORT_FIELDS = new Map<string, string>([
   ['id', 'id'],
   ['createdAt', 'created_at'],
@@ -24,7 +40,7 @@ export const analyticsResolvers = {
       async (
         parent: unknown,
         args: {
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
         },
         _context: unknown,
         _info: GraphQLResolveInfo
@@ -33,8 +49,19 @@ export const analyticsResolvers = {
           ValidationService.validateTimeRange(args.timeRange);
         }
 
-        const { startTime, endTime } = args.timeRange || {};
-        const cacheKey = buildCacheKey('network-metrics', { startTime, endTime });
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (args.timeRange?.preset) {
+          const resolved = resolvePreset(args.timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = args.timeRange?.startTime;
+          endTime = args.timeRange?.endTime;
+        }
+
+        const cacheKey = buildCacheKey('network-metrics', { startTime, endTime, preset: args.timeRange?.preset });
 
         return cachedQuery(cacheKey, CACHE_TTL.NETWORK_STATS, async () => {
           let whereClause = 'WHERE 1=1';
@@ -90,7 +117,7 @@ export const analyticsResolvers = {
       async (
         parent: unknown,
         args: {
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
         },
         _context: unknown,
         _info: GraphQLResolveInfo
@@ -99,8 +126,19 @@ export const analyticsResolvers = {
           ValidationService.validateTimeRange(args.timeRange);
         }
 
-        const { startTime, endTime } = args.timeRange || {};
-        const cacheKey = buildCacheKey('network-metrics-summary', { startTime, endTime });
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (args.timeRange?.preset) {
+          const resolved = resolvePreset(args.timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = args.timeRange?.startTime;
+          endTime = args.timeRange?.endTime;
+        }
+
+        const cacheKey = buildCacheKey('network-metrics-summary', { startTime, endTime, preset: args.timeRange?.preset });
 
         return cachedQuery(cacheKey, NETWORK_METRICS_CACHE_TTL_SECONDS, async () => {
           let whereClause = 'WHERE 1=1';
@@ -155,7 +193,7 @@ export const analyticsResolvers = {
         parent: unknown,
         args: {
           pagination?: PaginationArgs;
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
           filter?: {
             type?: string;
             successful?: boolean;
@@ -174,6 +212,18 @@ export const analyticsResolvers = {
         }
         if (args.filter) {
           ValidationService.validateOperationFilter(args.filter);
+        }
+
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (args.timeRange?.preset) {
+          const resolved = resolvePreset(args.timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = args.timeRange?.startTime;
+          endTime = args.timeRange?.endTime;
         }
 
         const { startTime, endTime } = args.timeRange || {};
@@ -612,7 +662,7 @@ export const analyticsResolvers = {
             assetCode?: string;
             assetIssuer?: string;
           };
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
           orderBy?: OrderByClause[];
         },
         _context: unknown,
@@ -628,13 +678,25 @@ export const analyticsResolvers = {
           ValidationService.validateTimeRange(args.timeRange);
         }
 
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (args.timeRange?.preset) {
+          const resolved = resolvePreset(args.timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = args.timeRange?.startTime;
+          endTime = args.timeRange?.endTime;
+        }
+
         const { assetType, assetCode, assetIssuer } = args.filter || {};
-        const { startTime, endTime } = args.timeRange || {};
 
         const cacheKey = buildCacheKey('asset-metrics', {
           assetType,
           assetCode,
           assetIssuer,
+          preset: args.timeRange?.preset,
           startTime,
           endTime,
           orderBy: args.orderBy,
@@ -741,7 +803,7 @@ export const analyticsResolvers = {
         args: {
           pagination?: PaginationArgs;
           accountId: string;
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
           orderBy?: OrderByClause[];
         },
         _context: unknown,
@@ -755,11 +817,23 @@ export const analyticsResolvers = {
           ValidationService.validateTimeRange(args.timeRange);
         }
 
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (args.timeRange?.preset) {
+          const resolved = resolvePreset(args.timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = args.timeRange?.startTime;
+          endTime = args.timeRange?.endTime;
+        }
+
         const { accountId } = args;
-        const { startTime, endTime } = args.timeRange || {};
 
         const cacheKey = buildCacheKey('account-metrics', {
           accountId,
+          preset: args.timeRange?.preset,
           startTime,
           endTime,
           orderBy: args.orderBy,
@@ -881,13 +955,29 @@ export const analyticsResolvers = {
         args: {
           entityType: string;
           filter?: { successful?: boolean; minFee?: number; maxFee?: number; hasMemo?: boolean; memoType?: string };
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
           format?: string;
         },
         _context: unknown,
         _info: GraphQLResolveInfo
       ): Promise<string> => {
         const { entityType, filter, timeRange, format = 'json' } = args;
+
+        if (timeRange) {
+          ValidationService.validateTimeRange(timeRange);
+        }
+
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (timeRange?.preset) {
+          const resolved = resolvePreset(timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = timeRange?.startTime;
+          endTime = timeRange?.endTime;
+        }
 
         if (!['transactions', 'ledgers', 'operations'].includes(entityType)) {
           throw new GraphQLError(`Unsupported entity type: "${entityType}". Must be transactions, ledgers, or operations.`, {
@@ -904,7 +994,6 @@ export const analyticsResolvers = {
         let whereClause = 'WHERE 1=1';
         const params: unknown[] = [];
         let paramIndex = 1;
-        const { startTime, endTime } = timeRange || {};
 
         if (startTime) {
           whereClause += ` AND created_at >= $${paramIndex++}`;

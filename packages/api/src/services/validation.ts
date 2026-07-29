@@ -66,6 +66,7 @@ const TimeRangeValidationSchema = z
   .object({
     startTime: z.string().datetime().optional(),
     endTime: z.string().datetime().optional(),
+    preset: z.enum(['LAST_HOUR', 'LAST_DAY', 'LAST_WEEK', 'LAST_MONTH']).optional(),
   })
   .refine(
     (data) => {
@@ -120,6 +121,7 @@ const TransactionFilterValidationSchema = z
     maxFee: z.number().min(0).optional(),
     hasMemo: z.boolean().optional(),
     memoType: z.enum(['none', 'text', 'id', 'hash', 'return']).optional(),
+    addresses: z.array(AddressSchema).max(50, 'Cannot filter more than 50 addresses at once').optional(),
   })
   .refine(
     (data) => {

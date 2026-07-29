@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import express from "express";
 import cors from "cors";
+import compression from "compression";
 import { buildSchema, graphql, execute, subscribe } from "graphql";
 import { WebSocketServer } from "ws";
 import { useServer } from "graphql-ws/use/ws";
@@ -13,6 +14,7 @@ import { startLedgerEventListener } from "./pg-listener.js";
 
 const app = express();
 app.use(cors());
+app.use(compression());
 app.use(express.json());
 
 const isProduction = process.env.NODE_ENV === "production";
