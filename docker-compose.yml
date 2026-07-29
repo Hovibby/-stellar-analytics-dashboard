@@ -1,6 +1,11 @@
 version: "3.9"
 services:
   postgres:
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: stellar_analytics
@@ -30,6 +35,11 @@ services:
       retries: 5
 
   redis:
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     image: redis:7-alpine
     ports:
       - "6379:6379"
