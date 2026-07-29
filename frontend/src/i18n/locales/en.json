@@ -77,7 +77,10 @@
     "successRate": "Success rate",
     "autoRefresh": "auto-refreshes every 30s",
     "updating": "Updating…",
-    "refreshChart": "Refresh chart"
+    "refreshChart": "Refresh chart",
+    "forecast": "Forecast",
+    "historical": "Historical",
+    "expectedForecast": "Expected (Forecast)"
   },
   "freshness": {
     "justNow": "Just now",
