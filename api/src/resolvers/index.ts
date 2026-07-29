@@ -13,6 +13,11 @@ export const resolvers = {
     if (rows.length === 0) return null;
     return transformLedger(rows[0], context);
   },
+  ledger: async ({ sequence }: { sequence: number }, context: any) => {
+    const { rows } = await query("SELECT * FROM ledgers WHERE sequence = $1", [sequence]);
+    if (rows.length === 0) return null;
+    return transformLedger(rows[0], context);
+  },
 
   ledgers: async ({ limit = 10, cursor }: { limit?: number; cursor?: string }, context: any) => {
     const sequenceCursor = cursor ? parseInt(Buffer.from(cursor, 'base64').toString('ascii'), 10) : null;

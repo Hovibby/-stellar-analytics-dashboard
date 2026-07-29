@@ -11,6 +11,7 @@ import { useDataFreshness } from '../hooks/useDataFreshness';
 import { DataFreshnessIndicator } from './DataFreshnessIndicator';
 import { Pagination, PageInfo } from './Pagination';
 import { TableRowSkeleton } from './Skeleton';
+import { EmptyState } from './EmptyState';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
