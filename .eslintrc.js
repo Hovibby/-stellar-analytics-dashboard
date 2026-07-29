@@ -67,3 +67,30 @@ module.exports = {
     },
   ],
 };
+
+// Issue #345: Static analysis rule — no raw SQL in API resolvers
+// Prevents raw SQL usage directly inside GraphQL resolver functions
+const noRawSqlInResolversRule = {
+  files: ['api/src/resolvers/**/*.ts'],
+  rules: {
+    'no-restricted-syntax': [
+      'error',
+      {
+        selector: "CallExpression[callee.name='query']",
+        message: 'Raw SQL query() calls are not allowed in resolvers. Use parameterized data access methods instead.',
+      },
+      {
+        selector: "CallExpression[callee.object.name='db'][callee.property.name='raw']",
+        message: 'Raw SQL via db.raw() is not allowed in resolvers. Use parameterized data access methods instead.',
+      },
+      {
+        selector: "TemplateLiteral TaggedTemplateExpression[tag.name='sql']",
+        message: 'SQL template literals are not allowed in resolvers. Use parameterized data access methods instead.',
+      },
+    ],
+  },
+};
+
+// Merge into existing config
+if (!module.exports.overrides) module.exports.overrides = [];
+module.exports.overrides.push(noRawSqlInResolversRule);

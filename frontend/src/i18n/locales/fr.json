@@ -55,7 +55,24 @@
     "createdAt": "Créé À",
     "noData": "Aucune transaction disponible pour le moment. L'indexeur est peut-être encore en synchronisation.",
     "success": "Succès",
-    "failed": "Échec"
+    "failed": "Échec",
+    "filteredByDrillDown": "Transactions affichées du {{from}} au {{to}}",
+    "clearFilter": "Effacer le filtre"
+  },
+  "filters": {
+    "title": "Filtrer les transactions",
+    "search": "Rechercher",
+    "searchPlaceholder": "Hash ou compte…",
+    "status": "Statut",
+    "all": "Tous",
+    "minFee": "Frais min.",
+    "maxFee": "Frais max.",
+    "memoType": "Type de mémo",
+    "hasMemo": "A un mémo",
+    "dateFrom": "Du",
+    "dateTo": "Au",
+    "reset": "Réinitialiser les filtres",
+    "noResults": "Aucune transaction ne correspond aux filtres actuels."
   },
   "pagination": {
     "itemsPerPage": "Éléments par page",
@@ -67,6 +84,7 @@
   },
   "chart": {
     "transactionVolume24h": "Volume des Transactions (24h)",
+    "networkComparison": "Comparaison de réseau",
     "loading": "Chargement du graphique de transactions",
     "noData": "Aucune donnée disponible pour le moment. L'indexeur est peut-être encore en synchronisation.",
     "totalTxs": "Total des txs",
@@ -74,38 +92,16 @@
     "successRate": "Taux de succès",
     "autoRefresh": "actualisation automatique toutes les 30s",
     "updating": "Mise à jour…",
-    "refreshChart": "Actualiser le graphique",
-    "successRateOverTime": "Taux de Succès dans le Temps",
-    "successful": "Réussi",
-    "failed": "Échoué"
+    "refreshChart": "Actualiser le graphique"
   },
-  "widgets": {
-    "topAssets": "Meilleurs Actifs",
-    "topAccounts": "Meilleurs Comptes",
-    "byVolume24h": "par volume 24h",
-    "byActivity24h": "par activité 24h",
-    "volume": "Volume",
-    "trades": "Échanges",
-    "holders": "Détenteurs",
-    "balance": "Solde",
-    "txCount24h": "Tx (24h)",
-    "active": "Actif",
-    "inactive": "Inactif",
-    "noData": "Aucune donnée disponible pour le moment."
-  },
-  "layout": {
-    "customize": "Personnaliser la mise en page",
-    "done": "Terminé",
-    "panels": "Panneaux",
-    "moveUp": "Monter",
-    "moveDown": "Descendre",
-    "hidePanel": "Masquer le panneau",
-    "showPanel": "Afficher le panneau",
-    "resetLayout": "Réinitialiser",
-    "panel.metrics": "Indicateurs Clés",
-    "panel.transactionsChart": "Graphique du Volume de Transactions",
-    "panel.successRateChart": "Graphique du Taux de Succès",
-    "panel.topAssets": "Widget des Meilleurs Actifs",
-    "panel.topAccounts": "Widget des Meilleurs Comptes"
+  "freshness": {
+    "justNow": "À l'instant",
+    "minutesAgo": "il y a {{count}} minute",
+    "minutesAgo_plural": "il y a {{count}} minutes",
+    "hoursAgo": "il y a {{count}} heure",
+    "hoursAgo_plural": "il y a {{count}} heures",
+    "daysAgo": "il y a {{count}} jour",
+    "daysAgo_plural": "il y a {{count}} jours",
+    "lastUpdated": "Dernière mise à jour"
   }
 }

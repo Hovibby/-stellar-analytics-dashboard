@@ -4,47 +4,56 @@
  * Replaces stub data with real API calls via useDashboardData.
  * Handles loading states, API errors, and retry logic.
  * Now includes paginated list views for ledgers and transactions.
+ * Includes data freshness indicators (issue #242).
  */
 import { TransactionsChart } from '../components/TransactionsChart';
-import { SuccessRateChart } from '../components/SuccessRateChart';
-import { TopAssetsWidget } from '../components/TopAssetsWidget';
-import { TopAccountsWidget } from '../components/TopAccountsWidget';
-import { LayoutCustomizer } from '../components/LayoutCustomizer';
+import { NetworkComparisonChart } from '../components/NetworkComparisonChart';
 import { ExportControls } from '../components/ExportControls';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { useDashboardData } from '../hooks/useDashboardData';
-import { useDashboardLayout } from '../hooks/useDashboardLayout';
+import { useDataFreshness } from '../hooks/useDataFreshness';
+import { DataFreshnessIndicator } from '../components/DataFreshnessIndicator';
 import { statsToArray } from '../utils/exportUtils';
 import { LedgersList } from '../components/LedgersList';
 import { TransactionsList } from '../components/TransactionsList';
+import { CardSkeleton } from '../components/Skeleton';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Breadcrumbs } from '../components/Breadcrumbs';
+import { NetworkStatusIndicator } from '../components/NetworkStatusIndicator';
 
 export function DashboardPage() {
   const { data, loading, error, retry } = useDashboardData();
+  const { data: freshnessData } = useDataFreshness();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'ledgers' | 'transactions'>('dashboard');
+  // Issue #230: chart drill-down — clicking a bar in TransactionsChart jumps
+  // to the Transactions tab pre-filtered to that bar's time bucket.
+  const [drillDownRange, setDrillDownRange] = useState<{ startTime: string; endTime: string } | null>(
+    null
+  );
   const { t } = useTranslation();
-  const { layout, toggleVisibility, move, reset } = useDashboardLayout();
-  const isPanelVisible = (id: string) =>
-    layout.find((p) => p.id === id)?.visible ?? true;
+  const { theme, toggleTheme } = useTheme();
+
+  useKeyboardShortcuts({
+    onDashboard: () => setActiveTab('dashboard'),
+    onLedgers: () => setActiveTab('ledgers'),
+    onTransactions: () => setActiveTab('transactions'),
+    onRefresh: () => retry(),
+    onToggleTheme: () => toggleTheme(),
+  });
+
+  const handleChartDrillDown = (range: { startTime: string; endTime: string }) => {
+    setDrillDownRange(range);
+    setActiveTab('transactions');
+  };
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loading && !data) {
     return (
       <main className="app">
         <h1>{t('app.title')}</h1>
-        <div className="grid">
-          {[0, 1, 2, 3].map((i) => (
-            <article key={i} className="card skeleton" aria-busy="true">
-              <div
-                className="skeleton-line"
-                style={{ width: '60%', height: '14px', marginBottom: '8px' }}
-              />
-              <div className="skeleton-line" style={{ width: '40%', height: '28px' }} />
-            </article>
-          ))}
-        </div>
+        <CardSkeleton count={8} />
       </main>
     );
   }
@@ -72,6 +81,7 @@ export function DashboardPage() {
           </p>
           <button
             onClick={retry}
+            title={`${t('app.retry')} (Alt+r)`}
             style={{
               background: 'var(--color-error)',
               color: '#fff',
@@ -106,6 +116,7 @@ export function DashboardPage() {
   return (
     <main className="app">
       <header
+        className="dashboard-header"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -127,28 +138,25 @@ export function DashboardPage() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          {/* Dashboard layout customization (issue #231) */}
-          {activeTab === 'dashboard' && (
-            <LayoutCustomizer
-              layout={layout}
-              toggleVisibility={toggleVisibility}
-              move={move}
-              reset={reset}
-            />
-          )}
-
+        <div className="dashboard-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           {/* Language switcher */}
           <LanguageSwitcher />
 
           {/* Theme toggle */}
           <ThemeToggle />
 
+          {/* Data freshness indicator */}
+          <DataFreshnessIndicator
+            lastUpdated={freshnessData?.dashboardLastUpdated || null}
+            label={t('freshness.lastUpdated')}
+          />
+
           {/* Export controls for dashboard metrics */}
           <ExportControls
             data={statsToArray(stats)}
             baseFilename="dashboard-metrics"
             disabled={loading}
+            stats={stats}
           />
 
           {/* Soft refresh indicator while polling */}
@@ -163,9 +171,22 @@ export function DashboardPage() {
         </div>
       </header>
 
+      {/* Breadcrumbs Navigation */}
+      <Breadcrumbs
+        activeTab={activeTab}
+        onNavigate={(tab) => {
+          setActiveTab(tab);
+          if (tab !== 'transactions') {
+            setDrillDownRange(null);
+          }
+        }}
+        drillDownRange={drillDownRange}
+        onClearFilter={() => setDrillDownRange(null)}
+      />
+
       {/* Tab Navigation */}
-      <div style={{ marginBottom: '24px', borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ display: 'flex', gap: '24px' }}>
+      <div className="tabs-nav-wrapper" style={{ marginBottom: '24px', borderBottom: '1px solid #e5e7eb' }}>
+        <div className="tabs-nav" style={{ display: 'flex', gap: '24px' }}>
           <button
             onClick={() => setActiveTab('dashboard')}
             style={{
@@ -180,7 +201,17 @@ export function DashboardPage() {
               color: activeTab === 'dashboard' ? '#3b82f6' : '#6b7280',
             }}
           >
-            {t('tabs.dashboard')}
+            {t('tabs.dashboard')}{' '}
+            <kbd style={{
+              fontSize: '10px',
+              opacity: 0.8,
+              background: 'var(--color-input-disabled)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '3px',
+              padding: '1px 3px',
+              marginLeft: '4px',
+              fontFamily: 'monospace'
+            }}>Alt+1</kbd>
           </button>
           <button
             onClick={() => setActiveTab('ledgers')}
@@ -195,7 +226,17 @@ export function DashboardPage() {
               color: activeTab === 'ledgers' ? '#3b82f6' : '#6b7280',
             }}
           >
-            {t('tabs.ledgers')}
+            {t('tabs.ledgers')}{' '}
+            <kbd style={{
+              fontSize: '10px',
+              opacity: 0.8,
+              background: 'var(--color-input-disabled)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '3px',
+              padding: '1px 3px',
+              marginLeft: '4px',
+              fontFamily: 'monospace'
+            }}>Alt+2</kbd>
           </button>
           <button
             onClick={() => setActiveTab('transactions')}
@@ -211,7 +252,17 @@ export function DashboardPage() {
               color: activeTab === 'transactions' ? '#3b82f6' : '#6b7280',
             }}
           >
-            {t('tabs.transactions')}
+            {t('tabs.transactions')}{' '}
+            <kbd style={{
+              fontSize: '10px',
+              opacity: 0.8,
+              background: 'var(--color-input-disabled)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '3px',
+              padding: '1px 3px',
+              marginLeft: '4px',
+              fontFamily: 'monospace'
+            }}>Alt+3</kbd>
           </button>
         </div>
       </div>
@@ -237,6 +288,7 @@ export function DashboardPage() {
           </span>
           <button
             onClick={retry}
+            title={`${t('app.retry')} (Alt+r)`}
             style={{
               background: 'transparent',
               border: '1px solid var(--color-warning-border)',
@@ -255,96 +307,53 @@ export function DashboardPage() {
       {/* Tab Content — panel order/visibility driven by useDashboardLayout (issue #231) */}
       {activeTab === 'dashboard' && (
         <>
-          {layout
-            .filter((panel) => panel.visible)
-            .map((panel) => {
-              switch (panel.id) {
-                case 'metrics':
-                  return (
-                    <div className="grid" key="metrics">
-                      {metrics.map(({ label, value }) => (
-                        <article key={label} className="card">
-                          <h3
-                            style={{
-                              margin: '0 0 8px',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.05em',
-                              color: '#6b7280',
-                            }}
-                          >
-                            {label}
-                          </h3>
-                          <p
-                            style={{
-                              margin: 0,
-                              fontSize: '24px',
-                              fontWeight: 700,
-                              fontVariantNumeric: 'tabular-nums',
-                            }}
-                          >
-                            {value}
-                          </p>
-                        </article>
-                      ))}
-                    </div>
-                  );
-                case 'transactionsChart':
-                  return (
-                    <div className="grid" style={{ marginTop: '24px' }} key="transactionsChart">
-                      <TransactionsChart />
-                    </div>
-                  );
-                case 'successRateChart':
-                  return (
-                    <div className="grid" style={{ marginTop: '24px' }} key="successRateChart">
-                      <SuccessRateChart />
-                    </div>
-                  );
-                case 'topAssets':
-                case 'topAccounts':
-                  // Rendered together as a two-column row the first time either appears.
-                  if (panel.id === 'topAssets' && !isPanelVisible('topAccounts')) {
-                    return (
-                      <div className="grid" style={{ marginTop: '24px' }} key="topAssets">
-                        <TopAssetsWidget />
-                      </div>
-                    );
-                  }
-                  if (panel.id === 'topAccounts' && !isPanelVisible('topAssets')) {
-                    return (
-                      <div className="grid" style={{ marginTop: '24px' }} key="topAccounts">
-                        <TopAccountsWidget />
-                      </div>
-                    );
-                  }
-                  if (panel.id === 'topAssets') {
-                    return (
-                      <div
-                        className="grid"
-                        style={{
-                          marginTop: '24px',
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                        }}
-                        key="topAssetsAndAccounts"
-                      >
-                        <TopAssetsWidget />
-                        <TopAccountsWidget />
-                      </div>
-                    );
-                  }
-                  return null;
-                default:
-                  return null;
-              }
-            })}
+          <div className="grid">
+            {metrics.map(({ label, value }) => (
+              <article key={label} className="card">
+                <h3
+                  style={{
+                    margin: '0 0 8px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    color: '#6b7280',
+                  }}
+                >
+                  {label}
+                </h3>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: '24px',
+                    fontWeight: 700,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {value}
+                </p>
+              </article>
+            ))}
+          </div>
+
+          <div className="grid" style={{ marginTop: '24px' }}>
+            <TransactionsChart onDrillDown={handleChartDrillDown} />
+          </div>
+
+          <div className="grid" style={{ marginTop: '24px' }}>
+            <NetworkComparisonChart />
+          </div>
         </>
       )}
 
       {activeTab === 'ledgers' && <LedgersList />}
 
-      {activeTab === 'transactions' && <TransactionsList />}
+      {activeTab === 'transactions' && (
+        <TransactionsList
+          initialTimeRange={drillDownRange}
+          onClearTimeRange={() => setDrillDownRange(null)}
+        />
+      )}
     </main>
   );
 }

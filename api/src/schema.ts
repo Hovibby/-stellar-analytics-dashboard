@@ -59,6 +59,13 @@ export const typeDefs = /* GraphQL */ `
     totalLedgers: Int!
   }
 
+  type DataFreshness {
+    ledgersLastUpdated: String!
+    transactionsLastUpdated: String!
+    operationsLastUpdated: String!
+    dashboardLastUpdated: String!
+  }
+
   type AssetVolume {
     assetCode: String!
     volume: String!
@@ -82,11 +89,16 @@ export const typeDefs = /* GraphQL */ `
     # Analytics
     accountStats(address: String!): AccountStats!
     networkStats: NetworkStats!
+    stats: Stats!
+    networkMetrics(timeRange: TimeRangeInput): [NetworkMetrics!]!
     assetVolume(assetCode: String!, timeframe: String!): AssetVolume!
     topAccounts(limit: Int): [TopAccount!]!
     
     # Aggregation helpers
     dailyTransactionCount(days: Int): [DailyCount!]!
+    
+    # Data freshness
+    dataFreshness: DataFreshness!
   }
 
   type DailyCount {
@@ -97,5 +109,18 @@ export const typeDefs = /* GraphQL */ `
   type Health {
     status: String!
     timestamp: String!
+  }
+
+  # Issue #210: real-time subscriptions, backed by Postgres LISTEN/NOTIFY
+  # (indexer emits pg_notify('ledger_events', ...) after each committed
+  # ledger write — see indexer/src/loader.ts and api/src/pg-listener.ts).
+  type LedgerAddedEvent {
+    sequence: Int!
+    transactionCount: Int!
+    closeTime: String!
+  }
+
+  type Subscription {
+    ledgerAdded: LedgerAddedEvent!
   }
 `;

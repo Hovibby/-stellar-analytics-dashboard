@@ -55,7 +55,24 @@
     "createdAt": "创建时间",
     "noData": "暂无交易可用。索引器可能仍在同步中。",
     "success": "成功",
-    "failed": "失败"
+    "failed": "失败",
+    "filteredByDrillDown": "显示 {{from}} 至 {{to}} 的交易",
+    "clearFilter": "清除筛选"
+  },
+  "filters": {
+    "title": "筛选交易",
+    "search": "搜索",
+    "searchPlaceholder": "哈希或账户…",
+    "status": "状态",
+    "all": "全部",
+    "minFee": "最低费用",
+    "maxFee": "最高费用",
+    "memoType": "备注类型",
+    "hasMemo": "含备注",
+    "dateFrom": "起始日期",
+    "dateTo": "结束日期",
+    "reset": "重置筛选条件",
+    "noResults": "没有符合当前筛选条件的交易。"
   },
   "pagination": {
     "itemsPerPage": "每页项目数",
@@ -67,6 +84,7 @@
   },
   "chart": {
     "transactionVolume24h": "交易量（24小时）",
+    "networkComparison": "网络比较",
     "loading": "正在加载交易图表",
     "noData": "暂无数据可用。索引器可能仍在同步中。",
     "totalTxs": "总交易数",
@@ -74,38 +92,16 @@
     "successRate": "成功率",
     "autoRefresh": "每30秒自动刷新",
     "updating": "更新中…",
-    "refreshChart": "刷新图表",
-    "successRateOverTime": "成功率趋势",
-    "successful": "成功",
-    "failed": "失败"
+    "refreshChart": "刷新图表"
   },
-  "widgets": {
-    "topAssets": "热门资产",
-    "topAccounts": "活跃账户",
-    "byVolume24h": "按24小时交易量",
-    "byActivity24h": "按24小时活跃度",
-    "volume": "交易量",
-    "trades": "交易笔数",
-    "holders": "持有人数",
-    "balance": "余额",
-    "txCount24h": "交易数（24小时）",
-    "active": "活跃",
-    "inactive": "不活跃",
-    "noData": "暂无数据可用。"
-  },
-  "layout": {
-    "customize": "自定义布局",
-    "done": "完成",
-    "panels": "面板",
-    "moveUp": "上移",
-    "moveDown": "下移",
-    "hidePanel": "隐藏面板",
-    "showPanel": "显示面板",
-    "resetLayout": "重置为默认",
-    "panel.metrics": "关键指标",
-    "panel.transactionsChart": "交易量图表",
-    "panel.successRateChart": "成功率图表",
-    "panel.topAssets": "热门资产小组件",
-    "panel.topAccounts": "活跃账户小组件"
+  "freshness": {
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}}分钟前",
+    "minutesAgo_plural": "{{count}}分钟前",
+    "hoursAgo": "{{count}}小时前",
+    "hoursAgo_plural": "{{count}}小时前",
+    "daysAgo": "{{count}}天前",
+    "daysAgo_plural": "{{count}}天前",
+    "lastUpdated": "最后更新"
   }
 }

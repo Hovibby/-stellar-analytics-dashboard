@@ -287,23 +287,17 @@ pnpm db:migrate
 - Add troubleshooting guides
 - Update configuration examples
 
-## 🗂️ Feature Triage
+## 👥 Code Ownership
 
-New feature ideas go through a structured triage and scoring process before being scheduled. See [docs/feature-triage.md](./docs/feature-triage.md) for the full process (RICE scoring, priority labels, sprint scheduling).
+Each service area has a designated owning team. GitHub automatically requests their review via [`.github/CODEOWNERS`](.github/CODEOWNERS) whenever a PR touches their files.
 
-## 📋 Release Notes
+See [`docs/code-ownership.md`](docs/code-ownership.md) for the full ownership table, per-area acceptance criteria, and escalation guidelines.
 
-Release notes are generated automatically from conventional commits. To preview what the next release entry will look like:
+## 📦 Dependency Updates
 
-```bash
-pnpm release:notes:preview
-```
+Third-party packages are kept current via Dependabot, which opens grouped PRs every Monday at 06:00 UTC. Security advisories are handled immediately regardless of the weekly schedule.
 
-See [docs/release-notes-process.md](./docs/release-notes-process.md) for the full release workflow.
-
-## 🔧 Startup Troubleshooting
-
-Running into Docker, Node, or database startup issues? See [docs/startup-troubleshooting.md](./docs/startup-troubleshooting.md) for solutions to the most common problems.
+See [`docs/dependency-management.md`](docs/dependency-management.md) for the full update policy, review checklist, and instructions for manual updates.
 
 ## 🤝 Community Guidelines
 

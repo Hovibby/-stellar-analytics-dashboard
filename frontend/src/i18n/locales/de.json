@@ -55,7 +55,24 @@
     "createdAt": "Erstellt Am",
     "noData": "Noch keine Transaktionen verfügbar. Der Indexer synchronisiert möglicherweise noch.",
     "success": "Erfolg",
-    "failed": "Fehlgeschlagen"
+    "failed": "Fehlgeschlagen",
+    "filteredByDrillDown": "Zeige Transaktionen von {{from}} bis {{to}}",
+    "clearFilter": "Filter entfernen"
+  },
+  "filters": {
+    "title": "Transaktionen filtern",
+    "search": "Suche",
+    "searchPlaceholder": "Hash oder Konto…",
+    "status": "Status",
+    "all": "Alle",
+    "minFee": "Min. Gebühr",
+    "maxFee": "Max. Gebühr",
+    "memoType": "Memo-Typ",
+    "hasMemo": "Hat Memo",
+    "dateFrom": "Von",
+    "dateTo": "Bis",
+    "reset": "Filter zurücksetzen",
+    "noResults": "Keine Transaktionen entsprechen den aktuellen Filtern."
   },
   "pagination": {
     "itemsPerPage": "Elemente pro Seite",
@@ -67,6 +84,7 @@
   },
   "chart": {
     "transactionVolume24h": "Transaktionsvolumen (24h)",
+    "networkComparison": "Netzwerkvergleich",
     "loading": "Lade Transaktionsdiagramm",
     "noData": "Noch keine Daten verfügbar. Der Indexer synchronisiert möglicherweise noch.",
     "totalTxs": "Gesamte txs",
@@ -74,38 +92,16 @@
     "successRate": "Erfolgsrate",
     "autoRefresh": "automatische Aktualisierung alle 30s",
     "updating": "Aktualisiere…",
-    "refreshChart": "Diagramm aktualisieren",
-    "successRateOverTime": "Erfolgsrate im Zeitverlauf",
-    "successful": "Erfolgreich",
-    "failed": "Fehlgeschlagen"
+    "refreshChart": "Diagramm aktualisieren"
   },
-  "widgets": {
-    "topAssets": "Top-Assets",
-    "topAccounts": "Top-Konten",
-    "byVolume24h": "nach 24h-Volumen",
-    "byActivity24h": "nach 24h-Aktivität",
-    "volume": "Volumen",
-    "trades": "Trades",
-    "holders": "Inhaber",
-    "balance": "Guthaben",
-    "txCount24h": "Tx (24h)",
-    "active": "Aktiv",
-    "inactive": "Inaktiv",
-    "noData": "Noch keine Daten verfügbar."
-  },
-  "layout": {
-    "customize": "Layout anpassen",
-    "done": "Fertig",
-    "panels": "Panels",
-    "moveUp": "Nach oben",
-    "moveDown": "Nach unten",
-    "hidePanel": "Panel ausblenden",
-    "showPanel": "Panel einblenden",
-    "resetLayout": "Zurücksetzen",
-    "panel.metrics": "Wichtige Kennzahlen",
-    "panel.transactionsChart": "Transaktionsvolumen-Diagramm",
-    "panel.successRateChart": "Erfolgsraten-Diagramm",
-    "panel.topAssets": "Top-Assets-Widget",
-    "panel.topAccounts": "Top-Konten-Widget"
+  "freshness": {
+    "justNow": "Gerade eben",
+    "minutesAgo": "vor {{count}} Minute",
+    "minutesAgo_plural": "vor {{count}} Minuten",
+    "hoursAgo": "vor {{count}} Stunde",
+    "hoursAgo_plural": "vor {{count}} Stunden",
+    "daysAgo": "vor {{count}} Tag",
+    "daysAgo_plural": "vor {{count}} Tagen",
+    "lastUpdated": "Zuletzt aktualisiert"
   }
 }
