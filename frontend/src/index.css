@@ -194,3 +194,30 @@ body {
   animation: shimmer 1.5s infinite;
   border-radius: 8px;
 }
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .theme-toggle,
+  .language-switcher,
+  .export-controls,
+  .breadcrumbs-nav,
+  button,
+  select,
+  header > div:last-child {
+    display: none !important;
+  }
+  .app {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+  .card {
+    border: 1px solid #ccc !important;
+    background: none !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+  }
+}
+

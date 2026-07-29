@@ -3,7 +3,7 @@
  * Provides client-side export functionality with progress tracking
  */
 
-export type ExportFormat = 'csv' | 'json';
+export type ExportFormat = 'csv' | 'json' | 'pdf' | 'image';
 
 export interface ExportOptions {
   format: ExportFormat;
@@ -147,4 +147,97 @@ export async function exportData<T extends Record<string, any>>(
 export function generateFilename(baseName: string): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
   return `${baseName}-${timestamp}`;
+}
+
+/**
+ * Export dashboard stats as a beautiful shareable OG-style card PNG image
+ */
+export async function exportAsImage(stats: any, isDarkMode: boolean): Promise<void> {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1200;
+  canvas.height = 630;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  // Background
+  const gradient = ctx.createLinearGradient(0, 0, 1200, 630);
+  if (isDarkMode) {
+    gradient.addColorStop(0, '#0f172a');
+    gradient.addColorStop(1, '#1e293b');
+  } else {
+    gradient.addColorStop(0, '#f8fafc');
+    gradient.addColorStop(1, '#e2e8f0');
+  }
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 1200, 630);
+
+  // Title
+  ctx.fillStyle = isDarkMode ? '#f1f5f9' : '#0f172a';
+  ctx.font = 'bold 36px "Segoe UI", Arial, sans-serif';
+  ctx.fillText('STELLAR ANALYTICS DASHBOARD', 60, 80);
+
+  // Subtitle
+  ctx.fillStyle = isDarkMode ? '#94a3b8' : '#64748b';
+  ctx.font = '18px "Segoe UI", Arial, sans-serif';
+  const networkStr = String(stats.network || 'unknown').toUpperCase();
+  const timeStr = new Date().toLocaleString();
+  ctx.fillText(`NETWORK: ${networkStr}  |  GENERATED: ${timeStr}`, 60, 120);
+
+  // Metric boxes
+  const metrics = [
+    { label: 'TOTAL LEDGERS', value: Number(stats.totalLedgers ?? 0).toLocaleString() },
+    { label: 'TOTAL TRANSACTIONS', value: Number(stats.totalTransactions ?? 0).toLocaleString() },
+    { label: 'TOTAL OPERATIONS', value: Number(stats.totalOperations ?? 0).toLocaleString() },
+    { label: 'TOTAL ACCOUNTS', value: Number(stats.totalAccounts ?? 0).toLocaleString() },
+    { label: 'ACTIVE ACCOUNTS (24H)', value: Number(stats.activeAccounts24h ?? 0).toLocaleString() },
+    { label: 'VOLUME (24H)', value: String(stats.volume24h ?? '0') },
+    { label: 'AVG FEE (24H)', value: `${Number(stats.averageFee24h ?? 0).toFixed(0)} str` },
+    { label: 'SUCCESS RATE (24H)', value: `${Number(stats.successRate24h ?? 0).toFixed(1)}%` },
+  ];
+
+  const startX = 60;
+  const startY = 170;
+  const cardW = 250;
+  const cardH = 160;
+  const gapX = 26;
+  const gapY = 30;
+
+  metrics.forEach((m, idx) => {
+    const col = idx % 4;
+    const row = Math.floor(idx / 4);
+    const x = startX + col * (cardW + gapX);
+    const y = startY + row * (cardH + gapY);
+
+    // Box background
+    ctx.fillStyle = isDarkMode ? '#1e293b' : '#ffffff';
+    ctx.beginPath();
+    ctx.roundRect(x, y, cardW, cardH, 12);
+    ctx.fill();
+
+    // Box border
+    ctx.strokeStyle = isDarkMode ? '#334155' : '#cbd5e1';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Label
+    ctx.fillStyle = isDarkMode ? '#94a3b8' : '#64748b';
+    ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(m.label, x + 20, y + 40);
+
+    // Value
+    ctx.fillStyle = isDarkMode ? '#60a5fa' : '#2563eb';
+    ctx.font = 'bold 28px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(m.value, x + 20, y + 100);
+  });
+
+  // Footer branding
+  ctx.fillStyle = isDarkMode ? '#475569' : '#94a3b8';
+  ctx.font = 'italic 14px "Segoe UI", Arial, sans-serif';
+  ctx.fillText('stellar-analytics-dashboard • Real-time Ingestion Service', 60, 580);
+
+  // Download
+  const link = document.createElement('a');
+  link.download = `stellar-analytics-${stats.network || 'network'}-${Date.now()}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
 }

@@ -320,4 +320,74 @@ describe('Analytics Resolvers', () => {
       expect(result[0].priceChange24h).toBe(0);
     });
   });
+
+  describe('Query.serviceStatus', () => {
+    let originalFetch: typeof global.fetch;
+
+    beforeAll(() => {
+      originalFetch = global.fetch;
+    });
+
+    afterAll(() => {
+      global.fetch = originalFetch;
+    });
+
+    it('should return healthy statuses when indexer is fresh and horizon is responsive', async () => {
+      const now = new Date();
+      mockDb.queryOne.mockResolvedValueOnce({ closed_at: now });
+      
+      const mockFetch = jest.fn().mockResolvedValueOnce({ ok: true });
+      global.fetch = mockFetch;
+
+      const result = await analyticsResolvers.Query.serviceStatus(
+        null,
+        {},
+        {},
+        {} as any
+      );
+
+      expect(result).toEqual({
+        api: 'healthy',
+        indexer: 'healthy',
+        dataSource: 'healthy',
+      });
+      expect(mockDb.queryOne).toHaveBeenCalledWith(
+        'SELECT closed_at FROM ledgers ORDER BY sequence DESC LIMIT 1'
+      );
+    });
+
+    it('should return stalled indexer status when latest ledger is older than 1 minute', async () => {
+      const longAgo = new Date(Date.now() - 70_000);
+      mockDb.queryOne.mockResolvedValueOnce({ closed_at: longAgo });
+      
+      const mockFetch = jest.fn().mockResolvedValueOnce({ ok: true });
+      global.fetch = mockFetch;
+
+      const result = await analyticsResolvers.Query.serviceStatus(
+        null,
+        {},
+        {},
+        {} as any
+      );
+
+      expect(result.indexer).toBe('stalled');
+    });
+
+    it('should return unhealthy data source status when horizon fetch fails', async () => {
+      const now = new Date();
+      mockDb.queryOne.mockResolvedValueOnce({ closed_at: now });
+      
+      const mockFetch = jest.fn().mockRejectedValueOnce(new Error('Fetch failed'));
+      global.fetch = mockFetch;
+
+      const result = await analyticsResolvers.Query.serviceStatus(
+        null,
+        {},
+        {},
+        {} as any
+      );
+
+      expect(result.dataSource).toBe('unhealthy');
+    });
+  });
 });
