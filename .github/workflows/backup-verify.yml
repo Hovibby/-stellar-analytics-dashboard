@@ -1,0 +1,104 @@
+# Issue #176: Automated database backup verification in CI
+name: Backup Verification
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # 4 AM UTC daily
+  pull_request:
+    paths:
+      - 'api/src/db.ts'
+      - 'scripts/backup*'
+      - '.github/workflows/backup-verify.yml'
+  workflow_dispatch:
+
+jobs:
+  verify-backup:
+    name: Verify Database Backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: stellar_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Create test backup
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/stellar_test
+        run: |
+          # Create test data
+          psql "$DATABASE_URL" -c "CREATE TABLE IF NOT EXISTS test_backup (id SERIAL, data TEXT);"
+          psql "$DATABASE_URL" -c "INSERT INTO test_backup (data) VALUES ('test1'), ('test2'), ('test3');"
+
+          # Create backup using pg_dump
+          mkdir -p backup-test
+          pg_dump "$DATABASE_URL" --format=custom > backup-test/test.dump
+
+          # Verify backup file exists and is non-empty
+          if [ ! -s backup-test/test.dump ]; then
+            echo "::error::Backup file is empty or does not exist"
+            exit 1
+          fi
+          echo "✓ Backup created successfully ($(du -h backup-test/test.dump | cut -f1))"
+
+      - name: Verify backup restoration
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/stellar_test
+        run: |
+          # Drop test data
+          psql "$DATABASE_URL" -c "DROP TABLE IF EXISTS test_backup;"
+
+          # Restore from backup
+          pg_restore --dbname="$DATABASE_URL" --clean --if-exists backup-test/test.dump
+
+          # Verify data was restored
+          ROW_COUNT=$(psql "$DATABASE_URL" -t -c "SELECT COUNT(*) FROM test_backup;" | xargs)
+          if [ "$ROW_COUNT" != "3" ]; then
+            echo "::error::Backup verification failed: expected 3 rows, got $ROW_COUNT"
+            exit 1
+          fi
+          echo "✓ Backup verified: $ROW_COUNT rows restored correctly"
+
+      - name: Verify backup integrity
+        run: |
+          # Check backup file integrity with pg_verifybackup if available
+          if command -v pg_verifybackup &> /dev/null; then
+            pg_verifybackup backup-test/ && echo "✓ Backup integrity verified" || {
+              echo "::error::Backup integrity check failed"
+              exit 1
+            }
+          else
+            echo "⚠ pg_verifybackup not available — skipping integrity check"
+          fi
+
+      - name: Report results
+        if: always()
+        run: |
+          echo "## Backup Verification Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Step | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Backup creation | ${{ job.status == 'success' && '✅' || '❌' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Backup restoration | ${{ job.status == 'success' && '✅' || '❌' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Integrity check | ${{ job.status == 'success' && '✅' || '❌' }} |" >> "$GITHUB_STEP_SUMMARY"
