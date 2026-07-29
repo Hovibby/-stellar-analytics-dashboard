@@ -21,9 +21,18 @@ import type { HealthCheckResult } from './database/connection';
 import { RealtimePublisher } from './services/realtime-publisher';
 import { checkSubscriptionRateLimit, checkEventRateLimit, cleanupRateLimits } from './pubsub';
 import { authService } from './services/auth';
-import { createTraceContext, extractTraceId, logTrace, getTraceResponseHeader, TraceContext } from './utils/tracer';
+import { initPerfAlerting, getPerfAlerting } from './services/performance-alerting';
+import { mountAdminGraphQL } from './admin/server';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { version: API_VERSION } = require('../package.json');
+import { getDbCircuitBreaker } from './services/circuit-breaker';
+import { AuthDirective } from './directives/auth';
 
 dotenv.config();
+
+// Bumped only on a breaking change to the public GraphQL schema or REST
+// endpoints. See docs/api-versioning.md for the full policy.
+const API_CONTRACT_VERSION = 'v1';
 
 const MAX_QUERY_COMPLEXITY = 1000;
 
@@ -167,6 +176,23 @@ class ApiServer {
     );
 
     this.app.use(compression());
+
+    // ── API version header ────────────────────────────────────────────────────
+    // See docs/api-versioning.md — API_CONTRACT_VERSION only bumps on a
+    // breaking change to the public schema/REST contract; API_VERSION is the
+    // package release version (see docs/versioning.md).
+    this.app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
+      res.setHeader('X-API-Version', API_CONTRACT_VERSION);
+      res.setHeader('X-API-Release', API_VERSION);
+      next();
+    });
+
+    this.app.get('/version', (_req, res) => {
+      res.status(200).json({
+        apiVersion: API_CONTRACT_VERSION,
+        release: API_VERSION,
+      });
+    });
 
     // ── Request Timeout ────────────────────────────────────────────────────────────
     this.app.use(timeoutMiddleware(30000, this.logger));
@@ -662,6 +688,8 @@ class ApiServer {
         path: '/graphql',
         cors: false,
       });
+
+      await mountAdminGraphQL(this.app, this.logger);
 
       this.httpServer = createServer(this.app);
       this.httpServer.timeout = 30000; // 30s default timeout
