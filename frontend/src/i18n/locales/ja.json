@@ -55,7 +55,9 @@
     "createdAt": "作成日時",
     "noData": "まだトランザクションがありません。インデクサーがまだ同期中かもしれません。",
     "success": "成功",
-    "failed": "失敗"
+    "failed": "失敗",
+    "filteredByDrillDown": "{{from}}〜{{to}}の取引を表示中",
+    "clearFilter": "フィルターを解除"
   },
   "filters": {
     "title": "トランザクションをフィルター",
@@ -82,6 +84,7 @@
   },
   "chart": {
     "transactionVolume24h": "トランザクション量（24時間）",
+    "networkComparison": "ネットワーク比較",
     "loading": "トランザクションチャートを読み込み中",
     "noData": "まだデータがありません。インデクサーがまだ同期中かもしれません。",
     "totalTxs": "総トランザクション数",
@@ -90,5 +93,15 @@
     "autoRefresh": "30秒ごとに自動更新",
     "updating": "更新中…",
     "refreshChart": "チャートを更新"
+  },
+  "freshness": {
+    "justNow": "たった今",
+    "minutesAgo": "{{count}}分前",
+    "minutesAgo_plural": "{{count}}分前",
+    "hoursAgo": "{{count}}時間前",
+    "hoursAgo_plural": "{{count}}時間前",
+    "daysAgo": "{{count}}日前",
+    "daysAgo_plural": "{{count}}日前",
+    "lastUpdated": "最終更新"
   }
 }

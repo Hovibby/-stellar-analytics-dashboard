@@ -33,7 +33,9 @@
     "from": "From",
     "to": "To",
     "exportData": "Export Data",
-    "exporting": "Exporting"
+    "exporting": "Exporting",
+    "pdfReport": "PDF Report",
+    "shareableImage": "Shareable Image"
   },
   "ledgers": {
     "title": "Ledgers",
@@ -55,7 +57,9 @@
     "createdAt": "Created At",
     "noData": "No transactions available yet. The indexer may still be syncing.",
     "success": "Success",
-    "failed": "Failed"
+    "failed": "Failed",
+    "filteredByDrillDown": "Showing transactions from {{from}} to {{to}}",
+    "clearFilter": "Clear filter"
   },
   "filters": {
     "title": "Filter transactions",
@@ -82,6 +86,7 @@
   },
   "chart": {
     "transactionVolume24h": "Transaction Volume (24h)",
+    "networkComparison": "Network Comparison",
     "loading": "Loading transaction chart",
     "noData": "No data available yet. The indexer may still be syncing.",
     "totalTxs": "Total txs",
@@ -89,6 +94,35 @@
     "successRate": "Success rate",
     "autoRefresh": "auto-refreshes every 30s",
     "updating": "Updating…",
-    "refreshChart": "Refresh chart"
+    "refreshChart": "Refresh chart",
+    "forecast": "Forecast",
+    "historical": "Historical",
+    "expectedForecast": "Expected (Forecast)"
+  },
+  "freshness": {
+    "justNow": "Just now",
+    "minutesAgo": "{{count}} min ago",
+    "minutesAgo_plural": "{{count}} mins ago",
+    "hoursAgo": "{{count}} hour ago",
+    "hoursAgo_plural": "{{count}} hours ago",
+    "daysAgo": "{{count}} day ago",
+    "daysAgo_plural": "{{count}} days ago",
+    "lastUpdated": "Last updated"
+  },
+  "networkStatus": {
+    "api": "API",
+    "indexer": "Indexer",
+    "dataSource": "Data Source",
+    "healthy": "Healthy",
+    "unhealthy": "Unhealthy",
+    "stalled": "Stalled",
+    "active": "Active"
+  },
+  "breadcrumbs": {
+    "home": "Home",
+    "dashboard": "Dashboard",
+    "ledgers": "Ledgers",
+    "transactions": "Transactions",
+    "filtered": "Filtered Range"
   }
 }

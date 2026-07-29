@@ -1,6 +1,33 @@
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, type TooltipProps } from 'recharts';
 import { useQuery } from '@apollo/client';
 import { ASSET_METRICS_QUERY } from '@/graphql/queries';
+import { ChartTooltip } from './ChartTooltip';
+
+function AssetTooltip({ active, payload }: TooltipProps<number, string>) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload as { name: string; volume: number } | undefined;
+  if (!d) return null;
+
+  return (
+    <ChartTooltip
+      header={
+        <span className="flex items-center gap-2">
+          <span>{d.name}</span>
+          <span className="text-muted-foreground font-normal">24h Volume</span>
+        </span>
+      }
+      minWidth={160}
+      rows={[
+        {
+          label: 'Volume',
+          value: `${d.volume.toLocaleString(undefined, { maximumFractionDigits: 0 })} XLM`,
+          color: 'hsl(var(--primary))',
+          dot: true,
+        },
+      ]}
+    />
+  );
+}
 
 export function TopAssets() {
   const { data, loading } = useQuery(ASSET_METRICS_QUERY, {
@@ -78,15 +105,7 @@ export function TopAssets() {
             />
             <Tooltip
               cursor={{ fill: 'hsl(var(--muted)/0.1)' }}
-              contentStyle={{
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '8px',
-              }}
-              formatter={(value: number) => [
-                value.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' XLM',
-                '24h Volume',
-              ]}
+              content={<AssetTooltip />}
             />
             <Bar dataKey="volume" radius={[0, 4, 4, 0]} barSize={24}>
               {chartData.map((_entry: any, index: number) => (

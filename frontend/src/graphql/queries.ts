@@ -21,6 +21,20 @@ export const STATS_QUERY = gql`
   }
 `;
 
+// Issue #210: pushed over the WebSocket link whenever the indexer commits a
+// new ledger (see api/src/pg-listener.ts). Consumed by useLedgerAddedSubscription
+// to trigger a live refresh of ledgers/transactions/stats instead of relying
+// solely on polling.
+export const LEDGER_ADDED_SUBSCRIPTION = gql`
+  subscription OnLedgerAdded {
+    ledgerAdded {
+      sequence
+      transactionCount
+      closeTime
+    }
+  }
+`;
+
 export const LEDGERS_QUERY = gql`
   query GetLedgers($first: Int, $after: String, $timeRange: TimeRangeInput) {
     ledgers(pagination: { first: $first, after: $after }, timeRange: $timeRange) {
@@ -91,3 +105,25 @@ export const NETWORK_METRICS_QUERY = gql`
     }
   }
 `;
+
+export const DATA_FRESHNESS_QUERY = gql`
+  query GetDataFreshness {
+    dataFreshness {
+      ledgersLastUpdated
+      transactionsLastUpdated
+      operationsLastUpdated
+      dashboardLastUpdated
+    }
+  }
+`;
+
+export const SERVICE_STATUS_QUERY = gql`
+  query GetServiceStatus {
+    serviceStatus {
+      api
+      indexer
+      dataSource
+    }
+  }
+`;
+

@@ -13,7 +13,9 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  type TooltipProps,
 } from 'recharts';
+import { ChartTooltip } from '@/components/ChartTooltip';
 import { Database, Activity, Cpu } from 'lucide-react';
 import { MetricCard } from '@/components/MetricCard';
 import { useFilterSort } from '@/hooks/useFilterSort';
@@ -109,6 +111,21 @@ export function Ledgers() {
     txCount: l.successfulTransactionCount,
     ops: l.operationCount,
   }));
+
+  function LedgerTxTooltip({ active, payload }: TooltipProps<number, string>) {
+    if (!active || !payload?.length) return null;
+    const d = payload[0]?.payload as { sequence: number; txCount: number; ops: number } | undefined;
+    if (!d) return null;
+    return (
+      <ChartTooltip
+        header={<span className="font-mono">#{d.sequence}</span>}
+        rows={[
+          { label: 'Transactions', value: d.txCount.toLocaleString(), color: 'hsl(var(--primary))', dot: true },
+          { label: 'Operations', value: d.ops.toLocaleString(), dot: true },
+        ]}
+      />
+    );
+  }
 
   // ── presets ────────────────────────────────────────────────────────────────
 
@@ -250,13 +267,7 @@ export function Ledgers() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                 <XAxis dataKey="sequence" hide />
                 <YAxis stroke="hsl(var(--muted-foreground))" fontSize={10} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px',
-                  }}
-                />
+                <Tooltip content={<LedgerTxTooltip />} />
                 <Area
                   type="stepAfter"
                   dataKey="txCount"

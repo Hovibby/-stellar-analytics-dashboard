@@ -2,18 +2,20 @@
  * ExportControls component
  *
  * Provides UI for:
- * - Export format selection (CSV/JSON)
+ * - Export format selection (CSV/JSON/PDF/Image)
  * - Date range selection
  * - Export button with progress indicator
  */
 import { useState } from 'react';
-import { ExportFormat, exportData, generateFilename } from '../utils/exportUtils';
+import { ExportFormat, exportData, generateFilename, exportAsImage } from '../utils/exportUtils';
 import { useTranslation } from 'react-i18next';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface ExportControlsProps {
   data: any[];
   baseFilename: string;
   disabled?: boolean;
+  stats?: any;
 }
 
 interface DateRange {
@@ -21,8 +23,9 @@ interface DateRange {
   end: Date;
 }
 
-export function ExportControls({ data, baseFilename, disabled = false }: ExportControlsProps) {
+export function ExportControls({ data, baseFilename, disabled = false, stats }: ExportControlsProps) {
   const { t } = useTranslation();
+  const { theme } = useTheme();
   const [format, setFormat] = useState<ExportFormat>('csv');
   const [dateRange, setDateRange] = useState<DateRange>({
     start: new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hours ago
@@ -32,6 +35,25 @@ export function ExportControls({ data, baseFilename, disabled = false }: ExportC
   const [exportProgress, setExportProgress] = useState(0);
 
   const handleExport = async () => {
+    if (format === 'pdf') {
+      window.print();
+      return;
+    }
+
+    if (format === 'image') {
+      if (!stats) return;
+      setIsExporting(true);
+      try {
+        await exportAsImage(stats, theme === 'dark');
+      } catch (error) {
+        console.error('Image export failed:', error);
+        alert(t('errors.exportFailed'));
+      } finally {
+        setIsExporting(false);
+      }
+      return;
+    }
+
     if (data.length === 0) return;
 
     setIsExporting(true);
@@ -63,8 +85,10 @@ export function ExportControls({ data, baseFilename, disabled = false }: ExportC
     }
   };
 
+  const isDataEmpty = data.length === 0 && format !== 'pdf' && format !== 'image';
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+    <div className="export-controls" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
       {/* Format selection */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
@@ -87,53 +111,61 @@ export function ExportControls({ data, baseFilename, disabled = false }: ExportC
         >
           <option value="csv">CSV</option>
           <option value="json">JSON</option>
+          {baseFilename === 'dashboard-metrics' && (
+            <>
+              <option value="pdf">PDF</option>
+              <option value="image">PNG Card</option>
+            </>
+          )}
         </select>
       </div>
 
       {/* Date range selection */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-          {t('export.from')}:
-        </label>
-        <input
-          type="datetime-local"
-          value={dateRange.start.toISOString().slice(0, 16)}
-          onChange={(e) => setDateRange({ ...dateRange, start: new Date(e.target.value) })}
-          disabled={isExporting || disabled}
-          style={{
-            padding: '6px 10px',
-            borderRadius: '6px',
-            border: '1px solid var(--color-border)',
-            fontSize: '13px',
-            cursor: isExporting || disabled ? 'not-allowed' : 'pointer',
-            background: 'var(--color-input-bg)',
-            color: 'var(--color-text-primary)',
-          }}
-        />
-        <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-          {t('export.to')}:
-        </label>
-        <input
-          type="datetime-local"
-          value={dateRange.end.toISOString().slice(0, 16)}
-          onChange={(e) => setDateRange({ ...dateRange, end: new Date(e.target.value) })}
-          disabled={isExporting || disabled}
-          style={{
-            padding: '6px 10px',
-            borderRadius: '6px',
-            border: '1px solid var(--color-border)',
-            fontSize: '13px',
-            cursor: isExporting || disabled ? 'not-allowed' : 'pointer',
-            background: 'var(--color-input-bg)',
-            color: 'var(--color-text-primary)',
-          }}
-        />
-      </div>
+      {format !== 'pdf' && format !== 'image' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+            {t('export.from')}:
+          </label>
+          <input
+            type="datetime-local"
+            value={dateRange.start.toISOString().slice(0, 16)}
+            onChange={(e) => setDateRange({ ...dateRange, start: new Date(e.target.value) })}
+            disabled={isExporting || disabled}
+            style={{
+              padding: '6px 10px',
+              borderRadius: '6px',
+              border: '1px solid var(--color-border)',
+              fontSize: '13px',
+              cursor: isExporting || disabled ? 'not-allowed' : 'pointer',
+              background: 'var(--color-input-bg)',
+              color: 'var(--color-text-primary)',
+            }}
+          />
+          <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+            {t('export.to')}:
+          </label>
+          <input
+            type="datetime-local"
+            value={dateRange.end.toISOString().slice(0, 16)}
+            onChange={(e) => setDateRange({ ...dateRange, end: new Date(e.target.value) })}
+            disabled={isExporting || disabled}
+            style={{
+              padding: '6px 10px',
+              borderRadius: '6px',
+              border: '1px solid var(--color-border)',
+              fontSize: '13px',
+              cursor: isExporting || disabled ? 'not-allowed' : 'pointer',
+              background: 'var(--color-input-bg)',
+              color: 'var(--color-text-primary)',
+            }}
+          />
+        </div>
+      )}
 
       {/* Export button */}
       <button
         onClick={handleExport}
-        disabled={isExporting || disabled || data.length === 0}
+        disabled={isExporting || disabled || isDataEmpty}
         style={{
           padding: '6px 16px',
           borderRadius: '6px',
@@ -142,7 +174,7 @@ export function ExportControls({ data, baseFilename, disabled = false }: ExportC
           color: '#fff',
           fontSize: '13px',
           fontWeight: 500,
-          cursor: isExporting || disabled || data.length === 0 ? 'not-allowed' : 'pointer',
+          cursor: isExporting || disabled || isDataEmpty ? 'not-allowed' : 'pointer',
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
@@ -154,12 +186,14 @@ export function ExportControls({ data, baseFilename, disabled = false }: ExportC
             {t('export.exporting')} {exportProgress}%
           </>
         ) : (
+          format === 'pdf' ? t('export.pdfReport') :
+          format === 'image' ? t('export.shareableImage') :
           t('export.exportData')
         )}
       </button>
 
       {/* Progress bar */}
-      {isExporting && (
+      {isExporting && format !== 'pdf' && format !== 'image' && (
         <div
           style={{
             width: '100px',

@@ -1,37 +1,20 @@
-import { GraphQLResolveInfo, GraphQLError } from 'graphql';
+import { GraphQLResolveInfo } from 'graphql';
 import { db, CACHE_TTL } from '../database/connection';
-import { buildCacheKey, cachedQuery } from '../database/cached-query';
-import { getStatsSummary } from '../services/stats-service';
 import { ValidationService } from '../services/validation';
+import { getStatsSummary } from '../services/stats-service';
 import { withResolverLogging } from '../utils/resolver-error';
-import { createConnection, PaginationArgs } from '../utils/pagination';
-import { Connection } from '@stellar-analytics/shared';
+import { buildCacheKey, cachedQuery } from '../database/cached-query';
+import { Connection, PaginationArgs } from '@stellar-analytics/shared';
+import { createConnection } from '../utils/pagination';
 import { buildOrderByClause, OrderByClause } from '../utils/sorting';
 
-const NETWORK_METRICS_CACHE_TTL_SECONDS = Number(
-  process.env.NETWORK_METRICS_CACHE_TTL_SECONDS ?? 30
-);
-
 const OPERATION_SORT_FIELDS = new Map<string, string>([
+  ['id', 'id'],
   ['createdAt', 'created_at'],
-  ['type', 'type'],
-  ['ledger', 'ledger_sequence'],
-  ['operationIndex', 'operation_index'],
 ]);
 
-const ASSET_METRICS_SORT_FIELDS = new Map<string, string>([
-  ['volume24h', 'volume_24h'],
-  ['trades24h', 'trades_24h'],
-  ['holders', 'holders'],
-  ['priceChange24h', 'price_change_24h'],
-]);
-
-const ACCOUNT_METRICS_SORT_FIELDS = new Map<string, string>([
-  ['balanceNative', 'balance_native'],
-  ['transactionCount24h', 'transaction_count_24h'],
-  ['transactionCount7d', 'transaction_count_7d'],
-  ['transactionCount30d', 'transaction_count_30d'],
-  ['lastTransaction', 'last_transaction'],
+const ASSET_SORT_FIELDS = new Map<string, string>([
+  ['assetCode', 'asset_code'],
 ]);
 
 export const analyticsResolvers = {
@@ -53,7 +36,7 @@ export const analyticsResolvers = {
         const { startTime, endTime } = args.timeRange || {};
         const cacheKey = buildCacheKey('network-metrics', { startTime, endTime });
 
-        const metrics = await cachedQuery(cacheKey, NETWORK_METRICS_CACHE_TTL_SECONDS, async () => {
+        return cachedQuery(cacheKey, CACHE_TTL.NETWORK_STATS, async () => {
           let whereClause = 'WHERE 1=1';
           const params: unknown[] = [];
           let paramIndex = 1;
@@ -67,30 +50,102 @@ export const analyticsResolvers = {
             params.push(endTime);
           }
 
-          return db.query(
+          const rows = await db.query(
             `
-          SELECT 
-            timestamp, ledger_count, transaction_count, operation_count,
-            active_accounts, total_volume, average_fee, success_rate
-          FROM network_metrics 
-          ${whereClause}
-          ORDER BY timestamp DESC
-          LIMIT 1000
-        `,
+            SELECT
+              timestamp,
+              ledger_count,
+              transaction_count,
+              operation_count,
+              active_accounts,
+              total_volume,
+              average_fee,
+              success_rate
+            FROM network_metrics
+            ${whereClause}
+            ORDER BY timestamp ASC
+          `,
             params
           );
-        });
 
-        return metrics.map((metric) => ({
-          timestamp: metric.timestamp,
-          ledgerCount: metric.ledger_count,
-          transactionCount: metric.transaction_count,
-          operationCount: metric.operation_count,
-          activeAccounts: metric.active_accounts,
-          totalVolume: metric.total_volume,
-          averageFee: parseFloat(metric.average_fee),
-          successRate: parseFloat(metric.success_rate),
-        }));
+          return rows.map((row) => ({
+            timestamp: row.timestamp,
+            ledgerCount: row.ledger_count,
+            transactionCount: row.transaction_count,
+            operationCount: row.operation_count,
+            activeAccounts: row.active_accounts,
+            totalVolume: row.total_volume,
+            averageFee: parseFloat(row.average_fee),
+            successRate: parseFloat(row.success_rate),
+          }));
+        });
+      }
+    ),
+
+    // Issue #220: aggregation endpoints should return summary totals
+    // alongside (or instead of) the raw list, not force every caller to
+    // fetch and reduce the full point list client-side just to get a sum.
+    networkMetricsSummary: withResolverLogging(
+      'Query.networkMetricsSummary',
+      async (
+        parent: unknown,
+        args: {
+          timeRange?: { startTime?: string; endTime?: string };
+        },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ) => {
+        if (args.timeRange) {
+          ValidationService.validateTimeRange(args.timeRange);
+        }
+
+        const { startTime, endTime } = args.timeRange || {};
+        const cacheKey = buildCacheKey('network-metrics-summary', { startTime, endTime });
+
+        return cachedQuery(cacheKey, NETWORK_METRICS_CACHE_TTL_SECONDS, async () => {
+          let whereClause = 'WHERE 1=1';
+          const params: unknown[] = [];
+          let paramIndex = 1;
+
+          if (startTime) {
+            whereClause += ` AND timestamp >= $${paramIndex++}`;
+            params.push(startTime);
+          }
+          if (endTime) {
+            whereClause += ` AND timestamp <= $${paramIndex++}`;
+            params.push(endTime);
+          }
+
+          const row = await db.queryOne(
+            `
+            SELECT
+              COUNT(*)::int AS data_point_count,
+              COALESCE(SUM(ledger_count), 0)::int AS total_ledgers,
+              COALESCE(SUM(transaction_count), 0)::int AS total_transactions,
+              COALESCE(SUM(operation_count), 0)::int AS total_operations,
+              COALESCE(SUM(total_volume), 0)::text AS total_volume,
+              COALESCE(AVG(average_fee), 0) AS average_fee,
+              COALESCE(AVG(success_rate), 0) AS average_success_rate,
+              MIN(timestamp) AS earliest_timestamp,
+              MAX(timestamp) AS latest_timestamp
+            FROM network_metrics
+            ${whereClause}
+          `,
+            params
+          );
+
+          return {
+            dataPointCount: row?.data_point_count ?? 0,
+            totalLedgers: row?.total_ledgers ?? 0,
+            totalTransactions: row?.total_transactions ?? 0,
+            totalOperations: row?.total_operations ?? 0,
+            totalVolume: row?.total_volume ?? '0',
+            averageFee: parseFloat(row?.average_fee ?? '0'),
+            averageSuccessRate: parseFloat(row?.average_success_rate ?? '0'),
+            earliestTimestamp: row?.earliest_timestamp ?? null,
+            latestTimestamp: row?.latest_timestamp ?? null,
+          };
+        });
       }
     ),
 
@@ -513,7 +568,31 @@ export const analyticsResolvers = {
           });
         }
 
-        return {
+      const query = `
+        SELECT DISTINCT ON (a.id)
+          a.asset_type, a.asset_code, a.asset_issuer, a.native,
+          am.volume_24h, am.volume_7d, am.volume_30d,
+          am.trades_24h, am.trades_7d, am.trades_30d,
+          am.price_change_24h, am.market_cap, am.holders
+        FROM assets a
+        LEFT JOIN LATERAL (
+          SELECT volume_24h, volume_7d, volume_30d, trades_24h, trades_7d, trades_30d,
+                 price_change_24h, market_cap, holders
+          FROM asset_metrics
+          WHERE asset_id = a.id
+          ORDER BY timestamp DESC
+          LIMIT 1
+        ) am ON TRUE
+        ${whereClause}
+        ORDER BY a.id
+        LIMIT $${paramIndex}
+      `;
+      params.push(first);
+
+      const assets = await db.query(query, params);
+
+      const result = assets.map(asset => ({
+        asset: {
           assetType: asset.asset_type,
           assetCode: asset.asset_code,
           assetIssuer: asset.asset_issuer,
@@ -634,7 +713,24 @@ export const analyticsResolvers = {
           holders: asset.holders,
         }));
 
-        return createConnection(result, args.pagination || {}, (item) => item.id);
+        // Issue #220: aggregates are computed over the FULL matching result
+        // set (before pagination slicing), not just the current page.
+        const aggregates = {
+          totalVolume24h: result
+            .reduce((sum, a) => sum + BigInt(a.volume24h || '0'), 0n)
+            .toString(),
+          totalTrades24h: result.reduce((sum, a) => sum + (a.trades24h || 0), 0),
+          averagePriceChange24h:
+            result.length === 0
+              ? 0
+              : result.reduce((sum, a) => sum + a.priceChange24h, 0) / result.length,
+          totalHolders: result.reduce((sum, a) => sum + (a.holders || 0), 0),
+        };
+
+        return {
+          ...createConnection(result, args.pagination || {}, (item) => item.id),
+          aggregates,
+        };
       }
     ),
 
@@ -731,6 +827,50 @@ export const analyticsResolvers = {
         return cachedQuery(cacheKey, CACHE_TTL.NETWORK_STATS, async () => {
           return getStatsSummary();
         });
+      }
+    ),
+
+    serviceStatus: withResolverLogging(
+      'Query.serviceStatus',
+      async () => {
+        const apiStatus = 'healthy';
+        let indexerStatus = 'healthy';
+        try {
+          const latestLedger = await db.queryOne<{ closed_at: string | Date }>(
+            'SELECT closed_at FROM ledgers ORDER BY sequence DESC LIMIT 1'
+          );
+          if (!latestLedger) {
+            indexerStatus = 'unhealthy';
+          } else {
+            const lastTime = new Date(latestLedger.closed_at).getTime();
+            const timeDiffMs = Date.now() - lastTime;
+            if (timeDiffMs > 60_000) { // 1 minute
+              indexerStatus = 'stalled';
+            }
+          }
+        } catch (error) {
+          indexerStatus = 'unhealthy';
+        }
+
+        let dataSourceStatus = 'healthy';
+        const horizonUrl = process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2000);
+          const res = await fetch(horizonUrl, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          if (!res.ok) {
+            dataSourceStatus = 'unhealthy';
+          }
+        } catch (error) {
+          dataSourceStatus = 'unhealthy';
+        }
+
+        return {
+          api: apiStatus,
+          indexer: indexerStatus,
+          dataSource: dataSourceStatus,
+        };
       }
     ),
 
@@ -840,7 +980,7 @@ export const analyticsResolvers = {
           return csvLines.join('\n');
         }
 
-        return JSON.stringify(rows, null, 2);
+        return JSON.stringify(rows);
       }
     ),
   },
