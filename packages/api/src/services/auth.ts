@@ -60,7 +60,7 @@ export class AuthService {
   extractToken(authorization?: string): string | null {
     if (!authorization) return null;
     const parts = authorization.split(' ');
-    if (parts.length === 2 && parts[0] === 'Bearer') {
+    if (parts.length === 2 && parts[0] === 'Bearer' && parts[1]) {
       return parts[1];
     }
     return null;
@@ -71,6 +71,7 @@ export class AuthService {
   }
 
   validateApiKey(apiKey: string): boolean {
+    if (!apiKey) return false;
     return apiKey.startsWith(this.apiKeyPrefix) && apiKey.length > this.apiKeyPrefix.length;
   }
 
