@@ -1,0 +1,65 @@
+# Issue #349: Automated nightly CI job for visual regression tests
+name: Visual Regression (Nightly)
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 2 AM UTC daily
+  workflow_dispatch:
+
+jobs:
+  visual-regression:
+    name: Visual Regression Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 9.12.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm run build
+
+      - name: Start preview server
+        working-directory: frontend
+        run: |
+          pnpm run preview &
+          npx wait-on http://localhost:4173 -t 30s
+
+      - name: Run visual regression tests
+        working-directory: frontend
+        env:
+          CI: true
+        run: npx playwright test --reporter=html --reporter=junit
+
+      - name: Upload visual regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-report
+          path: frontend/playwright-report/
+          retention-days: 30
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-screenshots
+          path: frontend/test-results/
+          retention-days: 14
+
+      - name: Notify on diff
+        if: failure()
+        run: |
+          echo "## Visual Regression Diffs Detected" >> "$GITHUB_STEP_SUMMARY"
+          echo "Unexpected visual diffs found in dashboard components/charts." >> "$GITHUB_STEP_SUMMARY"
+          echo "Download the report artifact for details." >> "$GITHUB_STEP_SUMMARY"
