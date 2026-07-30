@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import { useQuery } from '@apollo/client';
 import { format } from 'date-fns';
 import {
@@ -129,8 +130,11 @@ export function AccountDetail() {
   const { accountId } = useParams<{ accountId: string }>();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'transactions' | 'balances' | 'signers'>(
-    'transactions'
+  const ACCOUNT_TABS = ['transactions', 'balances', 'signers'] as const;
+  const [activeTab, setActiveTab] = useUrlTab<'transactions' | 'balances' | 'signers'>(
+    'tab',
+    'transactions',
+    ACCOUNT_TABS,
   );
 
   const {
