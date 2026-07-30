@@ -27,6 +27,14 @@ import { mountAdminGraphQL } from './admin/server';
 const { version: API_VERSION } = require('../package.json');
 import { getDbCircuitBreaker } from './services/circuit-breaker';
 import { AuthDirective } from './directives/auth';
+import {
+  type TraceContext,
+  createTraceContext,
+  logTrace,
+  extractTraceId,
+  getTraceResponseHeader,
+} from './utils/tracer';
+import { verify } from 'jsonwebtoken';
 
 dotenv.config();
 
@@ -565,11 +573,18 @@ class ApiServer {
               if (trace) {
                 trace.operationName = operation;
               }
+
+              // Calculate query complexity now that the document is available
+              const complexity = calculateQueryComplexity(
+                ctx.document,
+                ctx.request.variables,
+              );
               
               logger.info('GraphQL operation resolved', {
                 operation,
                 userId,
                 traceId: trace?.requestId,
+                complexity,
                 variables: ctx.request.variables,
               });
 
@@ -579,6 +594,9 @@ class ApiServer {
                     `Reduce the number of requested fields or lower the pagination limit.`
                 );
               }
+
+              // Attach complexity to context so willSendResponse can add header
+              ctx.context._queryComplexity = complexity;
             },
             didEncounterErrors(ctx: any) {
               logger.error('GraphQL operation errors', {
@@ -589,7 +607,37 @@ class ApiServer {
             },
             willSendResponse(ctx: any) {
               const duration = Date.now() - startTime;
-              
+              const operation = ctx.request.operationName || 'anonymous';
+              const user = ctx.context?.user;
+              const userId = user ? user.id : 'anonymous';
+              const userRole = user ? user.role : 'anonymous';
+              const complexity = ctx.context?._queryComplexity ?? 0;
+              const req = ctx.context?.req;
+              const clientIp = req?.ip ?? req?.socket?.remoteAddress ?? 'unknown';
+              const userAgent = req?.headers?.['user-agent'] ?? 'unknown';
+              const apiKey = req?.headers?.['x-api-key']
+                ? (req.headers['x-api-key'] as string).substring(0, 12) + '…'
+                : undefined;
+
+              // Attach X-Query-Complexity response header
+              if (ctx.response?.http) {
+                ctx.response.http.headers.set('X-Query-Complexity', String(complexity));
+              }
+
+              // Structured request log — one entry per completed GraphQL operation
+              logger.info('GraphQL request completed', {
+                operation,
+                durationMs: duration,
+                userId,
+                userRole,
+                complexity,
+                clientIp,
+                userAgent,
+                ...(apiKey ? { apiKey } : {}),
+                traceId: trace?.requestId,
+                hasErrors: Boolean(ctx.errors?.length),
+              });
+
               // Log trace summary for every request
               if (trace) {
                 logTrace(trace, logger);
@@ -597,9 +645,11 @@ class ApiServer {
               
               if (duration > 1000) {
                 logger.warn('Slow GraphQL query detected', {
-                  operation: ctx.request.operationName,
+                  operation,
                   traceId: trace?.requestId,
-                  duration,
+                  durationMs: duration,
+                  complexity,
+                  userId,
                 });
               }
             },
