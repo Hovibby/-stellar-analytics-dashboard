@@ -20,6 +20,8 @@ import { TransactionsList } from '../components/TransactionsList';
 import { CardSkeleton } from '../components/Skeleton';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Breadcrumbs } from '../components/Breadcrumbs';
+import { NetworkStatusIndicator } from '../components/NetworkStatusIndicator';
 
 export function DashboardPage() {
   const { data, loading, error, retry } = useDashboardData();
@@ -31,6 +33,15 @@ export function DashboardPage() {
     null
   );
   const { t } = useTranslation();
+  const { theme, toggleTheme } = useTheme();
+
+  useKeyboardShortcuts({
+    onDashboard: () => setActiveTab('dashboard'),
+    onLedgers: () => setActiveTab('ledgers'),
+    onTransactions: () => setActiveTab('transactions'),
+    onRefresh: () => retry(),
+    onToggleTheme: () => toggleTheme(),
+  });
 
   const handleChartDrillDown = (range: { startTime: string; endTime: string }) => {
     setDrillDownRange(range);
@@ -70,6 +81,7 @@ export function DashboardPage() {
           </p>
           <button
             onClick={retry}
+            title={`${t('app.retry')} (Alt+r)`}
             style={{
               background: 'var(--color-error)',
               color: '#fff',
@@ -104,6 +116,7 @@ export function DashboardPage() {
   return (
     <main className="app">
       <header
+        className="dashboard-header"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -125,7 +138,7 @@ export function DashboardPage() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div className="dashboard-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           {/* Language switcher */}
           <LanguageSwitcher />
 
@@ -143,6 +156,7 @@ export function DashboardPage() {
             data={statsToArray(stats)}
             baseFilename="dashboard-metrics"
             disabled={loading}
+            stats={stats}
           />
 
           {/* Soft refresh indicator while polling */}
@@ -157,9 +171,22 @@ export function DashboardPage() {
         </div>
       </header>
 
+      {/* Breadcrumbs Navigation */}
+      <Breadcrumbs
+        activeTab={activeTab}
+        onNavigate={(tab) => {
+          setActiveTab(tab);
+          if (tab !== 'transactions') {
+            setDrillDownRange(null);
+          }
+        }}
+        drillDownRange={drillDownRange}
+        onClearFilter={() => setDrillDownRange(null)}
+      />
+
       {/* Tab Navigation */}
-      <div style={{ marginBottom: '24px', borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ display: 'flex', gap: '24px' }}>
+      <div className="tabs-nav-wrapper" style={{ marginBottom: '24px', borderBottom: '1px solid #e5e7eb' }}>
+        <div className="tabs-nav" style={{ display: 'flex', gap: '24px' }}>
           <button
             onClick={() => setActiveTab('dashboard')}
             style={{
@@ -174,7 +201,17 @@ export function DashboardPage() {
               color: activeTab === 'dashboard' ? '#3b82f6' : '#6b7280',
             }}
           >
-            {t('tabs.dashboard')}
+            {t('tabs.dashboard')}{' '}
+            <kbd style={{
+              fontSize: '10px',
+              opacity: 0.8,
+              background: 'var(--color-input-disabled)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '3px',
+              padding: '1px 3px',
+              marginLeft: '4px',
+              fontFamily: 'monospace'
+            }}>Alt+1</kbd>
           </button>
           <button
             onClick={() => setActiveTab('ledgers')}
@@ -189,7 +226,17 @@ export function DashboardPage() {
               color: activeTab === 'ledgers' ? '#3b82f6' : '#6b7280',
             }}
           >
-            {t('tabs.ledgers')}
+            {t('tabs.ledgers')}{' '}
+            <kbd style={{
+              fontSize: '10px',
+              opacity: 0.8,
+              background: 'var(--color-input-disabled)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '3px',
+              padding: '1px 3px',
+              marginLeft: '4px',
+              fontFamily: 'monospace'
+            }}>Alt+2</kbd>
           </button>
           <button
             onClick={() => setActiveTab('transactions')}
@@ -205,7 +252,17 @@ export function DashboardPage() {
               color: activeTab === 'transactions' ? '#3b82f6' : '#6b7280',
             }}
           >
-            {t('tabs.transactions')}
+            {t('tabs.transactions')}{' '}
+            <kbd style={{
+              fontSize: '10px',
+              opacity: 0.8,
+              background: 'var(--color-input-disabled)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '3px',
+              padding: '1px 3px',
+              marginLeft: '4px',
+              fontFamily: 'monospace'
+            }}>Alt+3</kbd>
           </button>
         </div>
       </div>
@@ -231,6 +288,7 @@ export function DashboardPage() {
           </span>
           <button
             onClick={retry}
+            title={`${t('app.retry')} (Alt+r)`}
             style={{
               background: 'transparent',
               border: '1px solid var(--color-warning-border)',

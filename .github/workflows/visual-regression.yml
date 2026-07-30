@@ -63,10 +63,10 @@ jobs:
           - 6379:6379
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -139,7 +139,7 @@ jobs:
       # ── Always upload artefacts ──────────────────────────────────────────
       - name: Upload test results and diffs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: visual-regression-results
           path: |
@@ -149,7 +149,7 @@ jobs:
 
       - name: Upload snapshot diffs (failures only)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: visual-regression-diffs
           path: |
@@ -161,7 +161,7 @@ jobs:
       # Surface a summary comment on PRs so reviewers see the diff count
       - name: Comment on PR with regression summary
         if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');

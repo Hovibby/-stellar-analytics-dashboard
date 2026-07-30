@@ -36,8 +36,8 @@ export const LEDGER_ADDED_SUBSCRIPTION = gql`
 `;
 
 export const LEDGERS_QUERY = gql`
-  query GetLedgers($first: Int, $after: String) {
-    ledgers(pagination: { first: $first, after: $after }) {
+  query GetLedgers($first: Int, $after: String, $timeRange: TimeRangeInput) {
+    ledgers(pagination: { first: $first, after: $after }, timeRange: $timeRange) {
       edges {
         cursor
         node {
@@ -59,8 +59,17 @@ export const LEDGERS_QUERY = gql`
 `;
 
 export const TRANSACTIONS_QUERY = gql`
-  query GetTransactions($first: Int, $after: String, $timeRange: TimeRangeInput) {
-    transactions(pagination: { first: $first, after: $after }, timeRange: $timeRange) {
+  query GetTransactions(
+    $first: Int
+    $after: String
+    $timeRange: TimeRangeInput
+    $filter: TransactionFilterInput
+  ) {
+    transactions(
+      pagination: { first: $first, after: $after }
+      timeRange: $timeRange
+      filter: $filter
+    ) {
       edges {
         cursor
         node {
@@ -107,3 +116,14 @@ export const DATA_FRESHNESS_QUERY = gql`
     }
   }
 `;
+
+export const SERVICE_STATUS_QUERY = gql`
+  query GetServiceStatus {
+    serviceStatus {
+      api
+      indexer
+      dataSource
+    }
+  }
+`;
+

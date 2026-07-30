@@ -88,6 +88,87 @@ body {
   transition: background var(--transition-speed) ease, border-color var(--transition-speed) ease;
 }
 
+/* ── Responsive layout (issue #224) ────────────────────────────────────────── */
+
+.dashboard-header-controls {
+  flex-wrap: wrap;
+}
+
+.tabs-nav {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.tabs-nav button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+
+/*
+ * Tables keep a horizontal-scroll wrapper at every width (see the
+ * `overflowX: 'auto'` div around each <table>), but without a min-width the
+ * columns just get crushed illegibly instead of triggering that scroll.
+ * Pinning a min-width makes narrow viewports scroll the table horizontally
+ * — the standard responsive-table pattern — instead of squeezing text.
+ */
+.data-table {
+  min-width: 640px;
+}
+
+@media (max-width: 768px) {
+  .app {
+    padding: 16px;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+  }
+
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 12px;
+  }
+
+  .dashboard-header-controls {
+    width: 100%;
+    justify-content: space-between;
+    gap: 12px !important;
+  }
+
+  .tabs-nav {
+    gap: 16px !important;
+  }
+
+  .filter-bar {
+    gap: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app {
+    padding: 12px;
+  }
+
+  .card {
+    padding: 12px;
+    border-radius: 10px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
 /* Skeleton loading states (issue #228) */
 @keyframes shimmer {
   0% {
@@ -194,3 +275,30 @@ body {
   animation: shimmer 1.5s infinite;
   border-radius: 8px;
 }
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .theme-toggle,
+  .language-switcher,
+  .export-controls,
+  .breadcrumbs-nav,
+  button,
+  select,
+  header > div:last-child {
+    display: none !important;
+  }
+  .app {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+  .card {
+    border: 1px solid #ccc !important;
+    background: none !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+  }
+}
+
