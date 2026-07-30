@@ -27,6 +27,14 @@ import { mountAdminGraphQL } from './admin/server';
 const { version: API_VERSION } = require('../package.json');
 import { getDbCircuitBreaker } from './services/circuit-breaker';
 import { AuthDirective } from './directives/auth';
+import {
+  type TraceContext,
+  createTraceContext,
+  logTrace,
+  extractTraceId,
+  getTraceResponseHeader,
+} from './utils/tracer';
+import { verify } from 'jsonwebtoken';
 
 dotenv.config();
 
@@ -565,11 +573,18 @@ class ApiServer {
               if (trace) {
                 trace.operationName = operation;
               }
+
+              // Calculate query complexity from the parsed document
+              const complexity = calculateQueryComplexity(
+                ctx.document,
+                ctx.request.variables,
+              );
               
               logger.info('GraphQL operation resolved', {
                 operation,
                 userId,
                 traceId: trace?.requestId,
+                complexity,
                 variables: ctx.request.variables,
               });
 
@@ -579,6 +594,9 @@ class ApiServer {
                     `Reduce the number of requested fields or lower the pagination limit.`
                 );
               }
+
+              // Stash complexity so willSendResponse can set the response header
+              ctx.context._queryComplexity = complexity;
             },
             didEncounterErrors(ctx: any) {
               logger.error('GraphQL operation errors', {
@@ -589,7 +607,14 @@ class ApiServer {
             },
             willSendResponse(ctx: any) {
               const duration = Date.now() - startTime;
-              
+              const complexity = ctx.context?._queryComplexity ?? 0;
+
+              // Expose query complexity to clients via response header so they
+              // can tune their queries before hitting the hard limit.
+              if (ctx.response?.http) {
+                ctx.response.http.headers.set('X-Query-Complexity', String(complexity));
+              }
+
               // Log trace summary for every request
               if (trace) {
                 logTrace(trace, logger);
@@ -599,7 +624,8 @@ class ApiServer {
                 logger.warn('Slow GraphQL query detected', {
                   operation: ctx.request.operationName,
                   traceId: trace?.requestId,
-                  duration,
+                  durationMs: duration,
+                  complexity,
                 });
               }
             },

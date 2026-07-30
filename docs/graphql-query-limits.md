@@ -1,8 +1,8 @@
-# GraphQL Query Depth Limiting
+# GraphQL Query Depth Limiting and Cost Estimation
 
-The API enforces a maximum query depth to prevent deeply nested queries from causing excessive database load or stack overflows.
+The API enforces both a maximum query **depth** and a maximum query **complexity score** to prevent expensive queries from causing excessive database load or service abuse.
 
-## Current Configuration
+## Depth Limiting
 
 Depth limiting is applied via the [graphql-depth-limit](https://github.com/stems/graphql-depth-limit) package as a GraphQL validation rule:
 
@@ -19,7 +19,7 @@ this.apolloServer = new ApolloServer({
 
 The maximum allowed depth is **10 levels**.
 
-## What Counts as Depth
+### What Counts as Depth
 
 Each nested selection set adds one level of depth. For example:
 
@@ -38,7 +38,7 @@ query {
 
 A query exceeding depth 10 is rejected before execution with a validation error.
 
-## Error Response
+### Error Response
 
 When a query exceeds the depth limit, the API returns a 400-level response with a validation error:
 
@@ -55,7 +55,60 @@ When a query exceeds the depth limit, the API returns a 400-level response with 
 }
 ```
 
-## Adjusting the Limit
+---
+
+## Query Cost Estimation
+
+In addition to depth limiting, the API calculates a **complexity score** for every incoming query in the `didResolveOperation` Apollo plugin hook — before any resolvers execute. Queries exceeding the configured ceiling are rejected immediately.
+
+### How Complexity is Calculated
+
+The cost calculation is implemented in `calculateQueryComplexity()` in `packages/api/src/index.ts`:
+
+- Each selected field contributes **1 point** (multiplied by the current list multiplier).
+- Fields that resolve to **paginated collections** (`transactions`, `ledgers`, `accounts`, `operations`, `assets`, `edges`, `nodes`, `networkMetrics`, `assetMetrics`) scale the cost by the requested page size (defaults to 10 when no pagination argument is supplied).
+- The multiplier accumulates as the query nests deeper into list fields — `accounts { transactions { ... } }` compounds the cost.
+
+### Configuration
+
+| Parameter | Default | Environment Variable |
+|-----------|---------|----------------------|
+| Maximum complexity | `1000` | _(hardcoded; see `MAX_QUERY_COMPLEXITY`)_ |
+
+### `X-Query-Complexity` Response Header
+
+Every GraphQL response includes an `X-Query-Complexity` header so API clients can inspect the score of their queries and tune them proactively before reaching the hard limit:
+
+```
+X-Query-Complexity: 42
+```
+
+### Error Response
+
+When a query exceeds the complexity limit, the API returns a `400`-level GraphQL error:
+
+```json
+{
+  "errors": [
+    {
+      "message": "Query complexity 1200 exceeds the maximum allowed complexity of 1000. Reduce the number of requested fields or lower the pagination limit.",
+      "extensions": {
+        "code": "INTERNAL_SERVER_ERROR"
+      }
+    }
+  ]
+}
+```
+
+### Reducing Query Complexity
+
+- Request only the fields you need — unused fields still contribute to the score.
+- Lower the `first`/`pagination.first` argument on list fields.
+- Avoid deeply nested list-within-list queries (e.g. accounts → transactions → operations).
+
+---
+
+## Adjusting the Depth Limit
 
 The depth limit is hardcoded to `10` in `packages/api/src/index.ts`. To make it configurable via environment variable:
 
@@ -72,10 +125,6 @@ Then add to your `.env`:
 ```env
 GRAPHQL_MAX_DEPTH=10
 ```
-
-## Query Complexity
-
-Depth limiting alone does not protect against wide queries (many fields at the same level) or queries that fan out through lists. For more comprehensive protection, consider adding [graphql-query-complexity](https://github.com/slicknode/graphql-query-complexity) alongside depth limiting.
 
 ## Introspection
 
