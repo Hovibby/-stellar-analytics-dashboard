@@ -1,5 +1,72 @@
 import { query } from "../db.js";
 import { nowIso } from "@stellar-analytics/shared";
+import { GraphQLError } from "graphql";
+
+const VALID_STELLAR_ADDRESS = /^G[A-Z0-9]{55}$/;
+const MAX_LIMIT = 100;
+const MIN_LIMIT = 1;
+
+function validateAddress(field: string, value: string): string {
+  if (!VALID_STELLAR_ADDRESS.test(value)) {
+    throw new GraphQLError(
+      `Invalid ${field}: "${value}" is not a valid Stellar address. Addresses must start with "G" and be 56 characters long (base32 encoded).`,
+      { extensions: { code: "VALIDATION_ERROR", field } }
+    );
+  }
+  return value;
+}
+
+function validateLimit(field: string, value: number | undefined): number {
+  if (value === undefined) return 10;
+  if (!Number.isInteger(value) || value < MIN_LIMIT || value > MAX_LIMIT) {
+    throw new GraphQLError(
+      `Invalid ${field}: ${value}. Limit must be an integer between ${MIN_LIMIT} and ${MAX_LIMIT}.`,
+      { extensions: { code: "VALIDATION_ERROR", field } }
+    );
+  }
+  return value;
+}
+
+function validateCursor(field: string, cursor: string | undefined): number | null {
+  if (!cursor) return null;
+  const decoded = Buffer.from(cursor, "base64").toString("ascii");
+  const parsed = parseInt(decoded, 10);
+  if (isNaN(parsed) || parsed < 0) {
+    throw new GraphQLError(
+      `Invalid ${field}: cursor "${cursor}" is malformed. Cursor must be a valid base64-encoded numeric value.`,
+      { extensions: { code: "VALIDATION_ERROR", field } }
+    );
+  }
+  return parsed;
+}
+
+function validateDate(field: string, value: string | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (isNaN(date.getTime())) {
+    throw new GraphQLError(
+      `Invalid ${field}: "${value}" is not a valid ISO 8601 date string. Use format like "2024-01-01T00:00:00Z".`,
+      { extensions: { code: "VALIDATION_ERROR", field } }
+    );
+  }
+  return value;
+}
+
+function resolvePresetPreset(preset: string | undefined): { startTime: string; endTime: string } {
+  const now = new Date();
+  switch (preset) {
+    case "LAST_HOUR":
+      return { startTime: new Date(now.getTime() - 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case "LAST_DAY":
+      return { startTime: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case "LAST_WEEK":
+      return { startTime: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case "LAST_MONTH":
+      return { startTime: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    default:
+      return { startTime: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+  }
+}
 
 export const resolvers = {
   health: () => ({
@@ -20,7 +87,8 @@ export const resolvers = {
   },
 
   ledgers: async ({ limit = 10, cursor }: { limit?: number; cursor?: string }, context: any) => {
-    const sequenceCursor = cursor ? parseInt(Buffer.from(cursor, 'base64').toString('ascii'), 10) : null;
+    const resolvedLimit = validateLimit("limit", limit);
+    const sequenceCursor = cursor ? validateCursor("cursor", cursor) : null;
     
     let sql = "SELECT * FROM ledgers";
     const params: any[] = [];
@@ -31,16 +99,16 @@ export const resolvers = {
     }
     
     sql += " ORDER BY sequence DESC LIMIT $" + (params.length + 1);
-    params.push(limit + 1); // One extra to check for next page
+    params.push(resolvedLimit + 1);
 
     const { rows } = await query(sql, params);
     
-    const hasNextPage = rows.length > limit;
-    const nodes = hasNextPage ? rows.slice(0, limit) : rows;
+    const hasNextPage = rows.length > resolvedLimit;
+    const nodes = hasNextPage ? rows.slice(0, resolvedLimit) : rows;
     
     const edges = nodes.map((node) => ({
       node: transformLedger(node, context),
-      cursor: Buffer.from(node.sequence.toString()).toString('base64'),
+      cursor: Buffer.from(node.sequence.toString()).toString("base64"),
     }));
 
     return {
@@ -52,23 +120,40 @@ export const resolvers = {
     };
   },
 
-  transactions: async ({ address, limit = 10 }: { address?: string; limit?: number }, context: any) => {
+  transactions: async ({ address, addresses, limit = 10 }: { address?: string; addresses?: string[]; limit?: number }, context: any) => {
+    const resolvedLimit = validateLimit("limit", limit);
+
+    const allAddresses = new Set<string>();
+    if (address) {
+      allAddresses.add(validateAddress("address", address));
+    }
+    if (addresses && addresses.length > 0) {
+      for (const addr of addresses) {
+        allAddresses.add(validateAddress("address", addr));
+      }
+    }
+
+    const addrArray = Array.from(allAddresses);
+
     let sql = "SELECT * FROM transactions";
     const params: any[] = [];
-    
-    if (address) {
-      sql += " WHERE source_account = $1";
-      params.push(address);
+
+    if (addrArray.length > 0) {
+      const placeholders = addrArray.map((_, i) => `$${i + 1}`).join(", ");
+      sql += ` WHERE source_account IN (${placeholders})`;
+      params.push(...addrArray);
     }
-    
+
     sql += " ORDER BY created_at DESC LIMIT $" + (params.length + 1);
-    params.push(limit);
+    params.push(resolvedLimit);
 
     const { rows } = await query(sql, params);
     return rows.map(tx => transformTransaction(tx, context));
   },
 
   operations: async ({ type, limit = 10 }: { type?: string; limit?: number }, context: any) => {
+    const resolvedLimit = validateLimit("limit", limit);
+
     let sql = "SELECT * FROM operations";
     const params: any[] = [];
     
@@ -78,7 +163,7 @@ export const resolvers = {
     }
     
     sql += " ORDER BY created_at DESC LIMIT $" + (params.length + 1);
-    params.push(limit);
+    params.push(resolvedLimit);
 
     const { rows } = await query(sql, params);
     return rows.map(op => transformOperation(op));
@@ -86,6 +171,8 @@ export const resolvers = {
 
   // ANALYTICS
   accountStats: async ({ address }: { address: string }) => {
+    validateAddress("address", address);
+
     const txCountRes = await query("SELECT COUNT(*) FROM transactions WHERE source_account = $1", [address]);
     const volumeRes = await query("SELECT SUM(amount::numeric) as total FROM payments WHERE \"from\" = $1", [address]);
     const lastActiveRes = await query("SELECT MAX(created_at) as last FROM transactions WHERE source_account = $1", [address]);
@@ -143,9 +230,30 @@ export const resolvers = {
     };
   },
 
-  networkMetrics: async ({ timeRange }: { timeRange?: { startTime?: string; endTime?: string } }) => {
-    const startTime = timeRange?.startTime || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const endTime = timeRange?.endTime || new Date().toISOString();
+  networkMetrics: async ({ timeRange, preset }: { timeRange?: { startTime?: string; endTime?: string }; preset?: string }) => {
+    let startTime: string;
+    let endTime: string;
+
+    if (preset) {
+      const resolved = resolvePresetPreset(preset);
+      startTime = resolved.startTime;
+      endTime = resolved.endTime;
+    } else if (timeRange) {
+      const start = validateDate("startTime", timeRange.startTime);
+      const end = validateDate("endTime", timeRange.endTime);
+      if (start && end && new Date(start) > new Date(end)) {
+        throw new GraphQLError(
+          'Invalid time range: startTime must be before endTime.',
+          { extensions: { code: "VALIDATION_ERROR" } }
+        );
+      }
+      startTime = start || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      endTime = end || new Date().toISOString();
+    } else {
+      const now = new Date();
+      startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+      endTime = now.toISOString();
+    }
 
     const { rows } = await query(
       `SELECT 
