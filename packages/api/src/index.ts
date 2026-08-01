@@ -574,7 +574,7 @@ class ApiServer {
                 trace.operationName = operation;
               }
 
-              // Calculate query complexity from the parsed document
+              // Calculate query complexity now that the document is available
               const complexity = calculateQueryComplexity(
                 ctx.document,
                 ctx.request.variables,
@@ -595,7 +595,7 @@ class ApiServer {
                 );
               }
 
-              // Stash complexity so willSendResponse can set the response header
+              // Attach complexity to context so willSendResponse can add header
               ctx.context._queryComplexity = complexity;
             },
             didEncounterErrors(ctx: any) {
@@ -607,13 +607,36 @@ class ApiServer {
             },
             willSendResponse(ctx: any) {
               const duration = Date.now() - startTime;
+              const operation = ctx.request.operationName || 'anonymous';
+              const user = ctx.context?.user;
+              const userId = user ? user.id : 'anonymous';
+              const userRole = user ? user.role : 'anonymous';
               const complexity = ctx.context?._queryComplexity ?? 0;
+              const req = ctx.context?.req;
+              const clientIp = req?.ip ?? req?.socket?.remoteAddress ?? 'unknown';
+              const userAgent = req?.headers?.['user-agent'] ?? 'unknown';
+              const apiKey = req?.headers?.['x-api-key']
+                ? (req.headers['x-api-key'] as string).substring(0, 12) + '…'
+                : undefined;
 
-              // Expose query complexity to clients via response header so they
-              // can tune their queries before hitting the hard limit.
+              // Attach X-Query-Complexity response header
               if (ctx.response?.http) {
                 ctx.response.http.headers.set('X-Query-Complexity', String(complexity));
               }
+
+              // Structured request log — one entry per completed GraphQL operation
+              logger.info('GraphQL request completed', {
+                operation,
+                durationMs: duration,
+                userId,
+                userRole,
+                complexity,
+                clientIp,
+                userAgent,
+                ...(apiKey ? { apiKey } : {}),
+                traceId: trace?.requestId,
+                hasErrors: Boolean(ctx.errors?.length),
+              });
 
               // Log trace summary for every request
               if (trace) {
@@ -622,10 +645,11 @@ class ApiServer {
               
               if (duration > 1000) {
                 logger.warn('Slow GraphQL query detected', {
-                  operation: ctx.request.operationName,
+                  operation,
                   traceId: trace?.requestId,
                   durationMs: duration,
                   complexity,
+                  userId,
                 });
               }
             },
