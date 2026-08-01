@@ -1,0 +1,363 @@
+version: 2
+
+updates:
+  # ── Root workspace (tooling: eslint, prettier, husky, commitlint, concurrently) ──
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+    groups:
+      root-tooling:
+        patterns:
+          - "eslint*"
+          - "@typescript-eslint/*"
+          - "prettier*"
+          - "husky"
+          - "lint-staged"
+          - "@commitlint/*"
+          - "concurrently"
+          - "typescript"
+
+  # ── Shared package ────────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /shared
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: shared"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+    groups:
+      shared-deps:
+        patterns:
+          - "*"
+
+  # ── Indexer service ───────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /indexer
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: indexer"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+    groups:
+      stellar-sdk:
+        patterns:
+          - "@stellar/*"
+      logging:
+        patterns:
+          - "pino*"
+          - "winston*"
+      testing:
+        dependency-type: development
+        patterns:
+          - "jest"
+          - "@types/jest"
+          - "ts-jest"
+          - "tsx"
+          - "typescript"
+
+  # ── Root-level API service ─────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /api
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: api"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+    groups:
+      graphql:
+        patterns:
+          - "graphql*"
+          - "@apollo/*"
+      express:
+        patterns:
+          - "express*"
+          - "@types/express*"
+          - "cors"
+          - "@types/cors"
+      api-testing:
+        dependency-type: development
+        patterns:
+          - "tsx"
+          - "typescript"
+
+  # ── Root-level Frontend ────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: frontend"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      apollo:
+        patterns:
+          - "@apollo/*"
+          - "graphql*"
+      i18n:
+        patterns:
+          - "i18next*"
+          - "react-i18next"
+      vite-build:
+        dependency-type: development
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "typescript"
+      vitest-testing:
+        dependency-type: development
+        patterns:
+          - "vitest*"
+          - "@vitest/*"
+          - "@testing-library/*"
+          - "jsdom"
+
+  # ── packages/api ─────────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /packages/api
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: packages/api"
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      graphql-server:
+        patterns:
+          - "graphql*"
+          - "apollo-server*"
+          - "@apollo/*"
+      security:
+        patterns:
+          - "helmet"
+          - "jsonwebtoken"
+          - "bcryptjs"
+          - "express-rate-limit"
+          - "@types/jsonwebtoken"
+          - "@types/bcryptjs"
+      packages-api-testing:
+        dependency-type: development
+        patterns:
+          - "jest"
+          - "@types/jest"
+          - "ts-jest"
+          - "ts-node"
+          - "typescript"
+
+  # ── packages/frontend ─────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /packages/frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: packages/frontend"
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      pkg-react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      pkg-ui-libs:
+        patterns:
+          - "recharts"
+          - "framer-motion"
+          - "@headlessui/*"
+          - "lucide-react"
+          - "tailwindcss"
+          - "autoprefixer"
+          - "postcss"
+      pkg-state:
+        patterns:
+          - "zustand"
+          - "react-query"
+          - "react-hook-form"
+          - "@hookform/*"
+          - "zod"
+      pkg-frontend-testing:
+        dependency-type: development
+        patterns:
+          - "vitest*"
+          - "@vitest/*"
+          - "@testing-library/*"
+          - "vite"
+          - "@vitejs/*"
+          - "typescript"
+
+  # ── packages/indexer ─────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /packages/indexer
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: packages/indexer"
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      pkg-indexer-deps:
+        patterns:
+          - "*"
+
+  # ── packages/shared ───────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /packages/shared
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: packages/shared"
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      pkg-shared-deps:
+        patterns:
+          - "*"
+
+  # ── E2E test suite ────────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /packages/e2e
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: e2e"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+    groups:
+      playwright:
+        patterns:
+          - "@playwright/*"
+          - "playwright*"
+
+  # ── Docker base images ────────────────────────────────────────────────────
+  - package-ecosystem: docker
+    directory: /packages/api
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: docker"
+    commit-message:
+      prefix: "chore(docker)"
+      include: scope
+
+  - package-ecosystem: docker
+    directory: /packages/frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: docker"
+    commit-message:
+      prefix: "chore(docker)"
+      include: scope
+
+  # ── GitHub Actions ────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    labels:
+      - dependencies
+      - automated
+      - "scope: github-actions"
+    commit-message:
+      prefix: "chore(ci)"
+      include: scope
+    groups:
+      actions-core:
+        patterns:
+          - "actions/*"
+      actions-third-party:
+        patterns:
+          - "pnpm/*"
+          - "EnricoMi/*"

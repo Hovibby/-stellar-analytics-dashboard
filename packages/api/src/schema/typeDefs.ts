@@ -437,6 +437,16 @@ export const typeDefs = gql`
     startTime: DateTime
     "End of the time range (ISO 8601)"
     endTime: DateTime
+    "Preset time range for convenience"
+    preset: TimeRangePreset
+  }
+
+  "Preset time range options for faster dashboard queries"
+  enum TimeRangePreset {
+    LAST_HOUR
+    LAST_DAY
+    LAST_WEEK
+    LAST_MONTH
   }
 
   "Filter for asset queries"
@@ -473,6 +483,8 @@ export const typeDefs = gql`
     hasMemo: Boolean
     "Filter by memo type (none, text, id, hash, return)"
     memoType: String
+    "Filter by source account addresses (supports multiple accounts)"
+    addresses: [String!]
   }
 
   "Filter for operation queries"

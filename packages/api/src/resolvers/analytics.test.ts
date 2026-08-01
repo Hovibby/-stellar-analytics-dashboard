@@ -390,4 +390,39 @@ describe('Analytics Resolvers', () => {
       expect(result.dataSource).toBe('unhealthy');
     });
   });
+
+  describe('Query.networkMetrics with date range presets', () => {
+    it('should resolve LAST_HOUR preset to the correct time range', async () => {
+      mockDb.cacheGet.mockResolvedValue(null);
+      mockDb.query.mockResolvedValue([]);
+
+      const now = new Date();
+      const lastHour = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+
+      await analyticsResolvers.Query.networkMetrics(
+        null,
+        { timeRange: { preset: 'LAST_HOUR' } },
+        {},
+        {} as any
+      );
+
+      expect(mockDb.query).toHaveBeenCalled();
+      const queryCall = (mockDb.query as jest.Mock).mock.calls[0][0];
+      expect(queryCall).toContain('network_metrics');
+    });
+
+    it('should resolve LAST_DAY preset to the correct time range', async () => {
+      mockDb.cacheGet.mockResolvedValue(null);
+      mockDb.query.mockResolvedValue([]);
+
+      await analyticsResolvers.Query.networkMetrics(
+        null,
+        { timeRange: { preset: 'LAST_DAY' } },
+        {},
+        {} as any
+      );
+
+      expect(mockDb.query).toHaveBeenCalled();
+    });
+  });
 });

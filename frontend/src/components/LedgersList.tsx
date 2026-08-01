@@ -134,6 +134,7 @@ export function LedgersList() {
         <>
           <div style={{ overflowX: 'auto' }}>
             <table
+              className="data-table"
               style={{
                 width: '100%',
                 borderCollapse: 'collapse',
