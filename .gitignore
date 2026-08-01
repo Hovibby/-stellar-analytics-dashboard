@@ -78,11 +78,6 @@ packages/e2e/tests/__snapshots__/**/*-actual.png
 packages/e2e/tests/__snapshots__/**/*-diff.png
 # Baseline .png files ARE committed — do not ignore them
 
-# Storybook build output
-storybook-static/
-
-# Miscellaneous generated artifacts
-*.tgz
-*.tar.gz
-.turbo/
-.cache/
+# Snapshot test artefacts
+*.snap
+**/__snapshots__/*.snap

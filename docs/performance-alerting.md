@@ -13,6 +13,70 @@ Two complementary layers handle performance alerting:
 
 ---
 
+## Account Activity Alerts
+
+Monitor for unusual account behavior by configuring thresholds against ledger and transaction metrics.
+
+### Thresholds
+
+| Metric | Warning | Critical | Window |
+|--------|---------|----------|--------|
+| Transaction volume spike | > 3× 24h average | > 5× 24h average | 1 hour |
+| Sudden balance change | > 20% movement | > 50% movement | 15 minutes |
+| New signer addition | Any change on high-value accounts | Any change on accounts with > 1M XLM | Real-time |
+| Failed tx rate | > 5% of account txns | > 15% of account txns | 30 minutes |
+
+### Detection logic
+
+1. Aggregate `transactions` by `sourceAccount` over the configured window.
+2. Compare current volume/burn against the 7d rolling average for that account.
+3. If an account crosses a threshold, emit an alert with:
+   - `accountId`
+   - `metric` (`transaction_volume` / `balance_change` / `new_signer` / `failure_rate`)
+   - `currentValue`
+   - `threshold`
+   - `windowStart` / `windowEnd`
+4. Respect a per-account cooldown so one noisy account does not spam channels.
+
+### Frontend surfacing
+
+- `AccountDetail` shows a `⚠` indicator next to accounts with active alerts.
+- Clicking the indicator opens the account activity log filtered to the alert window.
+
+### Configuration
+
+```dotenv
+# Feature flag (off by default)
+ACCOUNT_ACTIVITY_ALERTS_ENABLED=true
+
+# Thresholds
+ALERT_TXN_VOLUME_WARN_FACTOR=3
+ALERT_TXN_VOLUME_CRITICAL_FACTOR=5
+ALERT_BALANCE_CHANGE_WARN_PCT=20
+ALERT_BALANCE_CHANGE_CRITICAL_PCT=50
+ALERT_FAILED_RATE_WARN_PCT=5
+ALERT_FAILED_RATE_CRITICAL_PCT=15
+
+# Windows (seconds)
+ALERT_VOLUME_WINDOW_SEC=3600
+ALERT_BALANCE_WINDOW_SEC=900
+ALERT_FAILURE_RATE_WINDOW_SEC=1800
+
+# Notification channels
+ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+ALERT_EMAIL_TO_ADDRESSES=ops@example.com,team@example.com
+```
+
+### Debugging
+
+- API logs each alert at `warn` level with structured metadata.
+- Re-run detection manually:
+  ```bash
+  pnpm --filter @stellar-analytics/api exec ts-node scripts/detect-account-activity-alerts.ts
+  ```
+
+---
+
 ## API-Side Alerting
 
 ### How it works

@@ -6,11 +6,13 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Proxy /graphql to the API server in development
       "/graphql": {
         target: "http://localhost:4000",
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    environment: "jsdom",
   },
 });

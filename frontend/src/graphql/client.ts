@@ -62,6 +62,32 @@ const errorLink = onError(({ graphQLErrors, networkError, operation }) => {
         locations
       );
     });
+
+    const schemaErrors = graphQLErrors.filter((err) => {
+      const msg = (err.message || '').toLowerCase();
+      return (
+        err.extensions?.code === 'GRAPHQL_VALIDATION_FAILED' ||
+        msg.includes('cannot query field') ||
+        msg.includes('unknown argument') ||
+        msg.includes('unknown type') ||
+        msg.includes('schema')
+      );
+    });
+
+    if (schemaErrors.length > 0) {
+      try {
+        sessionStorage.setItem(
+          'graphql-schema-error',
+          JSON.stringify({
+            message: 'The GraphQL API schema has changed unexpectedly.',
+            details: schemaErrors.map((e) => e.message).join('\n'),
+            timestamp: new Date().toISOString(),
+          })
+        );
+      } catch {
+        // ignore storage errors
+      }
+    }
   }
   if (networkError) {
     console.warn(
