@@ -1,3 +1,8 @@
+import fs from 'fs';
+import path from 'path';
+
+const DLQ_FILE = path.join(__dirname, '../../..', 'dead-letter-queue.log');
+
 /**
  * Issue #36 – Indexer Error Recovery
  *
@@ -27,11 +32,17 @@ export class DeadLetterQueue {
    */
   push(sequence: number, error: string): void {
     const now = new Date();
-    const existing = this.failedLedgers.find(l => l.sequence === sequence);
+    const existing = this.failedLedgers.find((l) => l.sequence === sequence);
+
     if (existing) {
       existing.attemptCount++;
       existing.lastFailedAt = now;
       existing.lastError = error;
+
+      if (existing.attemptCount >= this.maxRetries) {
+        this.writeToDlqFile(existing);
+        this.remove(existing.sequence);
+      }
     } else {
       this.failedLedgers.push({
         sequence,
@@ -47,7 +58,7 @@ export class DeadLetterQueue {
    * Get ledgers ready for retry with exponential backoff
    */
   getReadyForRetry(now: Date = new Date()): RetryableLedger[] {
-    return this.failedLedgers.filter(ledger => {
+    return this.failedLedgers.filter((ledger) => {
       if (ledger.attemptCount >= this.maxRetries) return false;
       const backoffMs = this.calculateBackoff(ledger.attemptCount);
       const readyTime = ledger.lastFailedAt.getTime() + backoffMs;
@@ -59,7 +70,7 @@ export class DeadLetterQueue {
    * Remove a ledger after successful retry
    */
   remove(sequence: number): void {
-    this.failedLedgers = this.failedLedgers.filter(l => l.sequence !== sequence);
+    this.failedLedgers = this.failedLedgers.filter((l) => l.sequence !== sequence);
   }
 
   /**
@@ -78,6 +89,13 @@ export class DeadLetterQueue {
 
   size(): number {
     return this.failedLedgers.length;
+  }
+
+  private writeToDlqFile(ledger: RetryableLedger): void {
+    const logEntry = `[${new Date().toISOString()}] Terminally failed ledger: ${JSON.stringify(
+      ledger
+    )}\n`;
+    fs.appendFileSync(DLQ_FILE, logEntry);
   }
 }
 

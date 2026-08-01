@@ -1,6 +1,12 @@
-import { Horizon } from "@stellar/stellar-sdk";
-import { STELLAR_NETWORKS, type StellarNetwork } from "@stellar-analytics/shared";
-import { ingesterLogger } from "./logger.js";
+import { Horizon } from '@stellar/stellar-sdk';
+import { STELLAR_NETWORKS, type StellarNetwork } from '@stellar-analytics/shared';
+import { ingesterLogger } from './logger.js';
+import {
+  ledgers_processed_total,
+  transactions_processed_total,
+  operations_processed_total,
+  ingestion_duration_seconds,
+} from './metrics.js';
 
 export interface IngestedData {
   ledger: Horizon.ServerApi.LedgerRecord;
@@ -61,14 +67,14 @@ export async function pollLatestLedger(
   const server = await resolveServer(network, serverOverride);
 
   try {
-    ingesterLogger.debug({ network }, "Polling Horizon for latest ledger");
+    ingesterLogger.debug({ network }, 'Polling Horizon for latest ledger');
 
     // 1. Get latest ledger
-    const ledgers = await server.ledgers().order("desc").limit(1).call();
+    const ledgers = await server.ledgers().order('desc').limit(1).call();
     const latestLedger = ledgers.records[0];
 
     if (!latestLedger) {
-      throw new Error("No ledgers found on Horizon");
+      throw new Error('No ledgers found on Horizon');
     }
 
     // 2. Get transactions for this ledger
@@ -77,6 +83,10 @@ export async function pollLatestLedger(
     // 3. Get operations for this ledger (can be many across all txs)
     const operations = await server.operations().forLedger(latestLedger.sequence).call();
 
+    ledgers_processed_total.inc();
+    transactions_processed_total.inc(transactions.records.length);
+    operations_processed_total.inc(operations.records.length);
+
     ingesterLogger.debug(
       {
         network,
@@ -84,7 +94,7 @@ export async function pollLatestLedger(
         txCount: transactions.records.length,
         opCount: operations.records.length,
       },
-      "Polled latest ledger"
+      'Polled latest ledger'
     );
 
     return {
@@ -95,9 +105,11 @@ export async function pollLatestLedger(
   } catch (error: any) {
     ingesterLogger.error(
       { network, error: error?.message ?? String(error) },
-      "Failed to poll Horizon"
+      'Failed to poll Horizon'
     );
     throw error;
+  } finally {
+    end();
   }
 }
 
@@ -113,8 +125,9 @@ export async function fetchLedger(
   const server = await resolveServer(network, serverOverride);
 
   const ledgerResp = await (server.ledgers().ledger(sequence) as any).call();
-  const ledger: Horizon.ServerApi.LedgerRecord =
-    ledgerResp.records ? ledgerResp.records[0] : ledgerResp;
+  const ledger: Horizon.ServerApi.LedgerRecord = ledgerResp.records
+    ? ledgerResp.records[0]
+    : ledgerResp;
 
   const [txResp, opResp] = await Promise.all([
     server.transactions().forLedger(sequence).limit(200).call(),

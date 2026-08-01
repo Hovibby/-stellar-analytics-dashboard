@@ -13,17 +13,17 @@
  *  - Graceful cancellation via AbortSignal
  */
 
-import { Horizon } from "@stellar/stellar-sdk";
-import { STELLAR_NETWORKS, type StellarNetwork } from "@stellar-analytics/shared";
+import { Horizon } from '@stellar/stellar-sdk';
+import { STELLAR_NETWORKS, type StellarNetwork } from '@stellar-analytics/shared';
 import {
   normalizeLedger,
   normalizeTransactions,
   normalizeOperations,
   normalizePayments,
-} from "./transformer.js";
-import { writeIngestedData } from "./loader.js";
-import { backfillLogger } from "./logger.js";
-import type { IndexerConfig } from "./config.js";
+} from './transformer.js';
+import { writeIngestedData } from './loader.js';
+import { backfillLogger } from './logger.js';
+import type { IndexerConfig } from './config.js';
 import {
   createCheckpoint,
   saveCheckpoint,
@@ -31,7 +31,7 @@ import {
   markCheckpointFailed,
   markCheckpointCancelled,
   loadCheckpoint,
-} from "./checkpoint.js";
+} from './checkpoint.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +52,8 @@ export interface BackfillOptions {
   signal?: AbortSignal;
   /** Optional callback invoked after each ledger is processed */
   onProgress?: (progress: BackfillProgress) => void;
+  /** Optional account to filter by */
+  account?: string;
 }
 
 export interface BackfillProgress {
@@ -102,16 +104,14 @@ async function runWithConcurrency<T>(
       if (signal?.aborted) break;
       const index = nextIndex++;
       try {
-        results[index] = { status: "fulfilled", value: await tasks[index]() };
+        results[index] = { status: 'fulfilled', value: await tasks[index]() };
       } catch (err: any) {
-        results[index] = { status: "rejected", reason: err };
+        results[index] = { status: 'rejected', reason: err };
       }
     }
   }
 
-  const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () =>
-    worker()
-  );
+  const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker());
   await Promise.all(workers);
   return results;
 }
@@ -122,17 +122,28 @@ async function runWithConcurrency<T>(
 
 async function fetchOneLedger(
   server: Horizon.Server,
-  sequence: number
-): Promise<{ ledger: Horizon.ServerApi.LedgerRecord; transactions: Horizon.ServerApi.TransactionRecord[]; operations: Horizon.ServerApi.OperationRecord[] }> {
+  sequence: number,
+  account?: string
+): Promise<{
+  ledger: Horizon.ServerApi.LedgerRecord;
+  transactions: Horizon.ServerApi.TransactionRecord[];
+  operations: Horizon.ServerApi.OperationRecord[];
+}> {
   const ledgerResp = await (server.ledgers().ledger(sequence) as any).call();
   // Horizon SDK may return the record directly or wrapped in .records[]
-  const ledger: Horizon.ServerApi.LedgerRecord =
-    ledgerResp.records ? ledgerResp.records[0] : ledgerResp;
+  const ledger: Horizon.ServerApi.LedgerRecord = ledgerResp.records
+    ? ledgerResp.records[0]
+    : ledgerResp;
 
-  const [txResp, opResp] = await Promise.all([
-    server.transactions().forLedger(sequence).limit(200).call(),
-    server.operations().forLedger(sequence).limit(200).call(),
-  ]);
+  const txCall = account
+    ? server.transactions().forAccount(account).forLedger(sequence)
+    : server.transactions().forLedger(sequence);
+
+  const opCall = account
+    ? server.operations().forAccount(account).forLedger(sequence)
+    : server.operations().forLedger(sequence);
+
+  const [txResp, opResp] = await Promise.all([txCall.limit(200).call(), opCall.limit(200).call()]);
 
   return {
     ledger,
@@ -145,15 +156,14 @@ async function fetchOneLedger(
 // Check if a ledger is already indexed
 // ---------------------------------------------------------------------------
 
-async function isLedgerIndexed(pool: any, sequence: number): Promise<boolean> {
-  if (!pool) return false;
+async function isLedgerIndexed(pool: any, sequence: number, account?: string): Promise<boolean> {
+  if (!pool || account) return false;
   try {
     const client = await pool.connect();
     try {
-      const res = await client.query(
-        "SELECT 1 FROM ledgers WHERE sequence = $1 LIMIT 1",
-        [sequence]
-      );
+      const res = await client.query('SELECT 1 FROM ledgers WHERE sequence = $1 LIMIT 1', [
+        sequence,
+      ]);
       return res.rowCount > 0;
     } finally {
       client.release();
@@ -170,15 +180,16 @@ async function isLedgerIndexed(pool: any, sequence: number): Promise<boolean> {
 async function processOneLedger(
   server: Horizon.Server,
   pool: any,
-  sequence: number
-): Promise<"processed" | "skipped"> {
+  sequence: number,
+  account?: string
+): Promise<'processed' | 'skipped'> {
   // Resume capability: skip if already indexed
-  if (await isLedgerIndexed(pool, sequence)) {
-    backfillLogger.debug({ sequence }, "Ledger already indexed, skipping");
-    return "skipped";
+  if (await isLedgerIndexed(pool, sequence, account)) {
+    backfillLogger.debug({ sequence }, 'Ledger already indexed, skipping');
+    return 'skipped';
   }
 
-  const ingested = await fetchOneLedger(server, sequence);
+  const ingested = await fetchOneLedger(server, sequence, account);
 
   const normalizedData = {
     ledger: normalizeLedger(ingested),
@@ -188,8 +199,8 @@ async function processOneLedger(
   };
 
   await writeIngestedData(pool, normalizedData);
-  backfillLogger.debug({ sequence }, "Ledger processed");
-  return "processed";
+  backfillLogger.debug({ sequence, account }, 'Ledger processed');
+  return 'processed';
 }
 
 // ---------------------------------------------------------------------------
@@ -210,20 +221,11 @@ async function processOneLedger(
  * console.log(`Processed ${result.processed} ledgers in ${result.durationMs}ms`);
  */
 export async function runBackfill(options: BackfillOptions): Promise<BackfillResult> {
-  const {
-    network,
-    startSequence,
-    endSequence,
-    pool,
-    config,
-    signal,
-    onProgress,
-  } = options;
+  const { network, startSequence, endSequence, pool, config, signal, onProgress, account } =
+    options;
 
   if (startSequence > endSequence) {
-    throw new Error(
-      `startSequence (${startSequence}) must be <= endSequence (${endSequence})`
-    );
+    throw new Error(`startSequence (${startSequence}) must be <= endSequence (${endSequence})`);
   }
 
   const horizonUrl = STELLAR_NETWORKS[network].horizonUrl;
@@ -242,11 +244,7 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
   if (pool) {
     // Try to load an existing in-progress checkpoint
     const existing = await loadCheckpoint(pool, jobId);
-    if (
-      existing &&
-      existing.status === 'in_progress' &&
-      existing.lastProcessedSequence !== null
-    ) {
+    if (existing && existing.status === 'in_progress' && existing.lastProcessedSequence !== null) {
       resumeFromSequence = existing.lastProcessedSequence + 1;
       processed = existing.processedCount;
       skipped = existing.skippedCount;
@@ -259,7 +257,7 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
           skipped: existing.skippedCount,
           failed: existing.failedCount,
         },
-        "Resuming backfill from checkpoint"
+        'Resuming backfill from checkpoint'
       );
     } else {
       await createCheckpoint(pool, jobId, network, startSequence, endSequence);
@@ -275,8 +273,9 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
       total,
       concurrency: config.backfillConcurrency,
       batchSize: config.backfillBatchSize,
+      account,
     },
-    "Starting backfill"
+    'Starting backfill'
   );
 
   let lastFailedSequence: number | null = null;
@@ -292,7 +291,7 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
 
   for (let batchStart = 0; batchStart < sequences.length; batchStart += batchSize) {
     if (signal?.aborted) {
-      backfillLogger.warn({ processed, skipped, failed }, "Backfill cancelled by signal");
+      backfillLogger.warn({ processed, skipped, failed }, 'Backfill cancelled by signal');
       if (pool) {
         await markCheckpointCancelled(pool, jobId, {
           lastProcessedSequence:
@@ -308,7 +307,7 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
     const batch = sequences.slice(batchStart, batchStart + batchSize);
 
     // Build tasks for this batch
-    const tasks = batch.map((seq) => () => processOneLedger(server, pool, seq));
+    const tasks = batch.map((seq) => () => processOneLedger(server, pool, seq, account));
 
     // Run batch with configured concurrency
     const results = await runWithConcurrency(tasks, config.backfillConcurrency, signal);
@@ -316,8 +315,8 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
     // Tally results
     results.forEach((result, i) => {
       const seq = batch[i];
-      if (result.status === "fulfilled") {
-        if (result.value === "skipped") {
+      if (result.status === 'fulfilled') {
+        if (result.value === 'skipped') {
           skipped++;
         } else {
           processed++;
@@ -326,8 +325,11 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
         failed++;
         lastFailedSequence = seq;
         backfillLogger.error(
-          { sequence: seq, error: result.reason?.message ?? String(result.reason) },
-          "Failed to process ledger"
+          {
+            sequence: seq,
+            error: result.reason?.message ?? String(result.reason),
+          },
+          'Failed to process ledger'
         );
       }
     });
@@ -385,13 +387,12 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
         jobId,
         `Backfill completed with ${failed} failed ledger(s). Last failed: ${lastFailedSequence}`,
         {
-          lastProcessedSequence: sequences.length > 0
-            ? sequences[sequences.length - 1]
-            : resumeFromSequence - 1,
+          lastProcessedSequence:
+            sequences.length > 0 ? sequences[sequences.length - 1] : resumeFromSequence - 1,
           processedCount: processed,
           skippedCount: skipped,
           failedCount: failed,
-        },
+        }
       );
     } else {
       await markCheckpointCompleted(pool, jobId, {
@@ -403,10 +404,7 @@ export async function runBackfill(options: BackfillOptions): Promise<BackfillRes
     }
   }
 
-  backfillLogger.info(
-    { processed, skipped, failed, durationMs, total },
-    "Backfill complete"
-  );
+  backfillLogger.info({ processed, skipped, failed, durationMs, total }, 'Backfill complete');
 
   return {
     processed,
@@ -431,6 +429,7 @@ export function parseBackfillArgs(argv: string[]): {
   endSequence: number;
   network: StellarNetwork;
   concurrency?: number;
+  account?: string;
 } {
   const args: Record<string, string> = {};
   for (const arg of argv) {
@@ -438,17 +437,18 @@ export function parseBackfillArgs(argv: string[]): {
     if (match) args[match[1]] = match[2];
   }
 
-  const startSequence = parseInt(args["start"] ?? "", 10);
-  const endSequence = parseInt(args["end"] ?? "", 10);
+  const startSequence = parseInt(args['start'] ?? '', 10);
+  const endSequence = parseInt(args['end'] ?? '', 10);
 
   if (isNaN(startSequence) || isNaN(endSequence)) {
     throw new Error(
-      "Usage: node backfill.js --start=<sequence> --end=<sequence> [--network=testnet|mainnet] [--concurrency=4]"
+      'Usage: node backfill.js --start=<sequence> --end=<sequence> [--network=testnet|mainnet] [--concurrency=4] [--account=<account_id>]'
     );
   }
 
-  const network = (args["network"] ?? "testnet") as StellarNetwork;
-  const concurrency = args["concurrency"] ? parseInt(args["concurrency"], 10) : undefined;
+  const network = (args['network'] ?? 'testnet') as StellarNetwork;
+  const concurrency = args['concurrency'] ? parseInt(args['concurrency'], 10) : undefined;
+  const account = args['account'];
 
-  return { startSequence, endSequence, network, concurrency };
+  return { startSequence, endSequence, network, concurrency, account };
 }

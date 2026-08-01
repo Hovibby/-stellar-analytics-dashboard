@@ -10,13 +10,20 @@
     "backfill": "tsx src/backfill-cli.ts"
   },
   "jest": {
-    "extensionsToTreatAsEsm": [".ts"],
+    "extensionsToTreatAsEsm": [
+      ".ts"
+    ],
     "moduleNameMapper": {
       "^(\\.\\.?/.*)\\.js$": "$1",
       "^@stellar-analytics/shared$": "<rootDir>/../shared/src/index.ts"
     },
     "transform": {
-      "^.+\\.tsx?$": ["ts-jest", { "useESM": true }]
+      "^.+\\.tsx?$": [
+        "ts-jest",
+        {
+          "useESM": true
+        }
+      ]
     }
   },
   "dependencies": {
@@ -28,6 +35,7 @@
     "pino": "^9.5.0",
     "pino-pretty": "^11.3.0",
     "pino-roll": "^1.0.0",
+    "prom-client": "^15.1.2",
     "ws": "^8.20.0"
   },
   "devDependencies": {

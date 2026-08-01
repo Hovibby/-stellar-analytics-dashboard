@@ -4,8 +4,9 @@ import jwt from 'jsonwebtoken';
 
 const MAX_MESSAGE_SIZE = 1024 * 1024; // 1MB - Issue #35
 const MAX_MESSAGES_PER_MINUTE = 100; // Issue #35
-const WS_PORT = parseInt(process.env.WS_PORT ?? "8080", 10);
-const JWT_SECRET = process.env.JWT_SECRET ?? 'default-development-secret-change-in-production-32chars';
+const WS_PORT = parseInt(process.env.WS_PORT ?? '8080', 10);
+const JWT_SECRET =
+  process.env.JWT_SECRET ?? 'default-development-secret-change-in-production-32chars';
 
 interface ClientState {
   authenticated: boolean;
@@ -16,7 +17,7 @@ interface ClientState {
 
 const clientStates = new Map<WebSocket, ClientState>();
 
-const wss = new WebSocketServer({ 
+const wss = new WebSocketServer({
   port: WS_PORT,
   maxPayload: MAX_MESSAGE_SIZE,
 });
@@ -37,7 +38,7 @@ wss.on('connection', (ws, request) => {
     try {
       const token = authHeader.substring(4); // Remove 'jwt.' prefix
       const payload = jwt.verify(token, JWT_SECRET) as { exp?: number; userId?: string };
-      
+
       // Check token expiration
       if (payload.exp && payload.exp > Date.now() / 1000) {
         clientState.authenticated = true;
@@ -90,27 +91,52 @@ wss.on('connection', (ws, request) => {
     }
 
     if (!parsed || typeof parsed !== 'object' || !('type' in parsed)) {
-      websocketLogger.warn({ userId: clientState.userId, type: (parsed as any)?.type ?? 'unknown' }, 'Invalid message format');
-      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format – type field required' }));
+      websocketLogger.warn(
+        { userId: clientState.userId, type: (parsed as any)?.type ?? 'unknown' },
+        'Invalid message format'
+      );
+      ws.send(
+        JSON.stringify({ type: 'error', message: 'Invalid message format – type field required' })
+      );
       return;
     }
 
     // Issue #35 – Message type validation
     const validTypes = ['ledger', 'transaction', 'operation', 'metrics', 'ping', 'pong'];
     if (!validTypes.includes((parsed as any).type)) {
-      websocketLogger.warn({ userId: clientState.userId, type: (parsed as any).type }, 'Unknown message type');
+      websocketLogger.warn(
+        { userId: clientState.userId, type: (parsed as any).type },
+        'Unknown message type'
+      );
       ws.send(JSON.stringify({ type: 'error', message: 'Unknown message type' }));
       ws.close(1008, 'Unknown message type');
       return;
     }
 
-    websocketLogger.debug({ userId: clientState.userId, type: (parsed as any).type }, 'Message validated and accepted');
+    websocketLogger.debug(
+      { userId: clientState.userId, type: (parsed as any).type },
+      'Message validated and accepted'
+    );
   });
 
   ws.on('close', () => {
     clientStates.delete(ws);
     websocketLogger.info('Client disconnected');
   });
+});
+
+const interval = setInterval(function ping() {
+  wss.clients.forEach(function each(ws) {
+    const clientState = clientStates.get(ws);
+    if (clientState?.isAlive === false) return ws.terminate();
+
+    clientState.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+wss.on('close', function close() {
+  clearInterval(interval);
 });
 
 wss.on('error', (err) => {
@@ -126,5 +152,8 @@ export function broadcastRealtimeUpdate(message: any): void {
       sent++;
     }
   });
-  websocketLogger.debug({ clientCount: sent, ledger: message?.ledger }, 'Broadcasted realtime update');
+  websocketLogger.debug(
+    { clientCount: sent, ledger: message?.ledger },
+    'Broadcasted realtime update'
+  );
 }
