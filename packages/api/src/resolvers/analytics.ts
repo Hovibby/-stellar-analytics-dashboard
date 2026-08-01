@@ -8,6 +8,22 @@ import { Connection, PaginationArgs } from '@stellar-analytics/shared';
 import { createConnection } from '../utils/pagination';
 import { buildOrderByClause, OrderByClause } from '../utils/sorting';
 
+function resolvePreset(preset: string): { startTime: string; endTime: string } {
+  const now = new Date();
+  switch (preset) {
+    case 'LAST_HOUR':
+      return { startTime: new Date(now.getTime() - 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case 'LAST_DAY':
+      return { startTime: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case 'LAST_WEEK':
+      return { startTime: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case 'LAST_MONTH':
+      return { startTime: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    default:
+      return { startTime: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+  }
+}
+
 const OPERATION_SORT_FIELDS = new Map<string, string>([
   ['id', 'id'],
   ['createdAt', 'created_at'],
@@ -24,7 +40,7 @@ export const analyticsResolvers = {
       async (
         parent: unknown,
         args: {
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
         },
         _context: unknown,
         _info: GraphQLResolveInfo
@@ -33,8 +49,19 @@ export const analyticsResolvers = {
           ValidationService.validateTimeRange(args.timeRange);
         }
 
-        const { startTime, endTime } = args.timeRange || {};
-        const cacheKey = buildCacheKey('network-metrics', { startTime, endTime });
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (args.timeRange?.preset) {
+          const resolved = resolvePreset(args.timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = args.timeRange?.startTime;
+          endTime = args.timeRange?.endTime;
+        }
+
+        const cacheKey = buildCacheKey('network-metrics', { startTime, endTime, preset: args.timeRange?.preset });
 
         return cachedQuery(cacheKey, CACHE_TTL.NETWORK_STATS, async () => {
           let whereClause = 'WHERE 1=1';
@@ -90,7 +117,7 @@ export const analyticsResolvers = {
       async (
         parent: unknown,
         args: {
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
         },
         _context: unknown,
         _info: GraphQLResolveInfo
@@ -99,8 +126,19 @@ export const analyticsResolvers = {
           ValidationService.validateTimeRange(args.timeRange);
         }
 
-        const { startTime, endTime } = args.timeRange || {};
-        const cacheKey = buildCacheKey('network-metrics-summary', { startTime, endTime });
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (args.timeRange?.preset) {
+          const resolved = resolvePreset(args.timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = args.timeRange?.startTime;
+          endTime = args.timeRange?.endTime;
+        }
+
+        const cacheKey = buildCacheKey('network-metrics-summary', { startTime, endTime, preset: args.timeRange?.preset });
 
         return cachedQuery(cacheKey, NETWORK_METRICS_CACHE_TTL_SECONDS, async () => {
           let whereClause = 'WHERE 1=1';
@@ -155,7 +193,7 @@ export const analyticsResolvers = {
         parent: unknown,
         args: {
           pagination?: PaginationArgs;
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
           filter?: {
             type?: string;
             successful?: boolean;
@@ -174,6 +212,18 @@ export const analyticsResolvers = {
         }
         if (args.filter) {
           ValidationService.validateOperationFilter(args.filter);
+        }
+
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (args.timeRange?.preset) {
+          const resolved = resolvePreset(args.timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = args.timeRange?.startTime;
+          endTime = args.timeRange?.endTime;
         }
 
         const { startTime, endTime } = args.timeRange || {};
@@ -612,7 +662,7 @@ export const analyticsResolvers = {
             assetCode?: string;
             assetIssuer?: string;
           };
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
           orderBy?: OrderByClause[];
         },
         _context: unknown,
@@ -628,13 +678,25 @@ export const analyticsResolvers = {
           ValidationService.validateTimeRange(args.timeRange);
         }
 
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (args.timeRange?.preset) {
+          const resolved = resolvePreset(args.timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = args.timeRange?.startTime;
+          endTime = args.timeRange?.endTime;
+        }
+
         const { assetType, assetCode, assetIssuer } = args.filter || {};
-        const { startTime, endTime } = args.timeRange || {};
 
         const cacheKey = buildCacheKey('asset-metrics', {
           assetType,
           assetCode,
           assetIssuer,
+          preset: args.timeRange?.preset,
           startTime,
           endTime,
           orderBy: args.orderBy,
@@ -741,7 +803,7 @@ export const analyticsResolvers = {
         args: {
           pagination?: PaginationArgs;
           accountId: string;
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
           orderBy?: OrderByClause[];
         },
         _context: unknown,
@@ -755,11 +817,23 @@ export const analyticsResolvers = {
           ValidationService.validateTimeRange(args.timeRange);
         }
 
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (args.timeRange?.preset) {
+          const resolved = resolvePreset(args.timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = args.timeRange?.startTime;
+          endTime = args.timeRange?.endTime;
+        }
+
         const { accountId } = args;
-        const { startTime, endTime } = args.timeRange || {};
 
         const cacheKey = buildCacheKey('account-metrics', {
           accountId,
+          preset: args.timeRange?.preset,
           startTime,
           endTime,
           orderBy: args.orderBy,
@@ -817,6 +891,110 @@ export const analyticsResolvers = {
         return createConnection(result, args.pagination || {}, (item) =>
           item.timestamp.toISOString()
         );
+      }
+    ),
+
+    // Issue #247: top N assets by 24h trading volume.
+    topAssets: withResolverLogging(
+      'Query.topAssets',
+      async (
+        parent: unknown,
+        args: { limit?: number },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ) => {
+        const limit = Math.min(Math.max(args.limit ?? 5, 1), 50);
+        const cacheKey = buildCacheKey('top-assets', { limit });
+
+        const assets = await cachedQuery(cacheKey, CACHE_TTL.ASSET_DATA, async () => {
+          const query = `
+            SELECT DISTINCT ON (a.id)
+              a.id, a.asset_type, a.asset_code, a.asset_issuer, a.native,
+              am.volume_24h, am.volume_7d, am.volume_30d,
+              am.trades_24h, am.trades_7d, am.trades_30d,
+              am.price_change_24h, am.market_cap, am.holders
+            FROM assets a
+            LEFT JOIN LATERAL (
+              SELECT volume_24h, volume_7d, volume_30d, trades_24h, trades_7d, trades_30d,
+                     price_change_24h, market_cap, holders
+              FROM asset_metrics
+              WHERE asset_id = a.id
+              ORDER BY timestamp DESC
+              LIMIT 1
+            ) am ON TRUE
+            WHERE am.volume_24h IS NOT NULL
+            ORDER BY a.id, am.volume_24h DESC
+          `;
+          const rows = await db.query(query, []);
+          return rows
+            .sort((a, b) => Number(b.volume_24h ?? 0) - Number(a.volume_24h ?? 0))
+            .slice(0, limit);
+        });
+
+        return assets.map((asset) => ({
+          asset: {
+            assetType: asset.asset_type,
+            assetCode: asset.asset_code,
+            assetIssuer: asset.asset_issuer,
+            native: asset.native,
+          },
+          volume24h: asset.volume_24h,
+          volume7d: asset.volume_7d,
+          volume30d: asset.volume_30d,
+          trades24h: asset.trades_24h,
+          trades7d: asset.trades_7d,
+          trades30d: asset.trades_30d,
+          priceChange24h: parseFloat(asset.price_change_24h ?? '0'),
+          marketCap: asset.market_cap,
+          holders: asset.holders,
+        }));
+      }
+    ),
+
+    // Issue #247: top N accounts by 24h transaction activity.
+    topAccounts: withResolverLogging(
+      'Query.topAccounts',
+      async (
+        parent: unknown,
+        args: { limit?: number },
+        _context: unknown,
+        _info: GraphQLResolveInfo
+      ) => {
+        const limit = Math.min(Math.max(args.limit ?? 5, 1), 50);
+        const cacheKey = buildCacheKey('top-accounts', { limit });
+
+        const accounts = await cachedQuery(cacheKey, CACHE_TTL.ACCOUNT_STATS, async () => {
+          const query = `
+            SELECT DISTINCT ON (account_id)
+              account_id, timestamp, balance_native, total_balance_usd,
+              transaction_count_24h, transaction_count_7d, transaction_count_30d,
+              first_transaction, last_transaction, is_active, trustlines, signers
+            FROM account_metrics
+            ORDER BY account_id, timestamp DESC
+          `;
+          const rows = await db.query(query, []);
+          return rows
+            .sort(
+              (a, b) =>
+                Number(b.transaction_count_24h ?? 0) - Number(a.transaction_count_24h ?? 0)
+            )
+            .slice(0, limit);
+        });
+
+        return accounts.map((metric) => ({
+          accountId: metric.account_id,
+          timestamp: metric.timestamp,
+          balanceNative: metric.balance_native,
+          totalBalanceUsd: metric.total_balance_usd,
+          transactionCount24h: metric.transaction_count_24h,
+          transactionCount7d: metric.transaction_count_7d,
+          transactionCount30d: metric.transaction_count_30d,
+          firstTransaction: metric.first_transaction,
+          lastTransaction: metric.last_transaction,
+          isActive: metric.is_active,
+          trustlines: metric.trustlines,
+          signers: metric.signers,
+        }));
       }
     ),
 
@@ -881,13 +1059,29 @@ export const analyticsResolvers = {
         args: {
           entityType: string;
           filter?: { successful?: boolean; minFee?: number; maxFee?: number; hasMemo?: boolean; memoType?: string };
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
           format?: string;
         },
         _context: unknown,
         _info: GraphQLResolveInfo
       ): Promise<string> => {
         const { entityType, filter, timeRange, format = 'json' } = args;
+
+        if (timeRange) {
+          ValidationService.validateTimeRange(timeRange);
+        }
+
+        let startTime: string | undefined;
+        let endTime: string | undefined;
+
+        if (timeRange?.preset) {
+          const resolved = resolvePreset(timeRange.preset);
+          startTime = resolved.startTime;
+          endTime = resolved.endTime;
+        } else {
+          startTime = timeRange?.startTime;
+          endTime = timeRange?.endTime;
+        }
 
         if (!['transactions', 'ledgers', 'operations'].includes(entityType)) {
           throw new GraphQLError(`Unsupported entity type: "${entityType}". Must be transactions, ledgers, or operations.`, {
@@ -904,7 +1098,6 @@ export const analyticsResolvers = {
         let whereClause = 'WHERE 1=1';
         const params: unknown[] = [];
         let paramIndex = 1;
-        const { startTime, endTime } = timeRange || {};
 
         if (startTime) {
           whereClause += ` AND created_at >= $${paramIndex++}`;

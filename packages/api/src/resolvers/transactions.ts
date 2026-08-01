@@ -9,6 +9,22 @@ import { buildCacheKey, cachedQuery } from '../database/cached-query';
 import { Connection } from '@stellar-analytics/shared';
 import { buildOrderByClause, OrderByClause } from '../utils/sorting';
 
+function resolvePreset(preset: string): { startTime: string; endTime: string } {
+  const now = new Date();
+  switch (preset) {
+    case 'LAST_HOUR':
+      return { startTime: new Date(now.getTime() - 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case 'LAST_DAY':
+      return { startTime: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case 'LAST_WEEK':
+      return { startTime: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    case 'LAST_MONTH':
+      return { startTime: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+    default:
+      return { startTime: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), endTime: now.toISOString() };
+  }
+}
+
 export interface ResolverContext {
   loaders: ApiLoaders;
 }
@@ -30,13 +46,14 @@ export const transactionResolvers = {
         parent: unknown,
         args: {
           pagination?: PaginationArgs;
-          timeRange?: { startTime?: string; endTime?: string };
+          timeRange?: { startTime?: string; endTime?: string; preset?: string };
           filter?: {
             successful?: boolean;
             minFee?: number;
             maxFee?: number;
             hasMemo?: boolean;
             memoType?: string;
+            addresses?: string[];
           };
           orderBy?: OrderByClause[];
         },
@@ -51,8 +68,8 @@ export const transactionResolvers = {
           ValidationService.validateTransactionFilter(args.filter);
         }
 
-        const { startTime, endTime } = args.timeRange || {};
-        const { successful, minFee, maxFee, hasMemo, memoType } = args.filter || {};
+        const { startTime, endTime, preset } = args.timeRange || {};
+        const { successful, minFee, maxFee, hasMemo, memoType, addresses } = args.filter || {};
 
         const orderByClause = buildOrderByClause(
           args.orderBy,
@@ -63,11 +80,13 @@ export const transactionResolvers = {
         const cacheKey = buildCacheKey('transactions', {
           startTime,
           endTime,
+          preset,
           successful,
           minFee,
           maxFee,
           hasMemo,
           memoType,
+          addresses,
           orderBy: args.orderBy,
         });
 
@@ -76,13 +95,21 @@ export const transactionResolvers = {
           const params: unknown[] = [];
           let paramIndex = 1;
 
-          if (startTime) {
+          if (preset) {
+            const { startTime: presetStart, endTime: presetEnd } = resolvePreset(preset);
             whereClause += ` AND created_at >= $${paramIndex++}`;
-            params.push(startTime);
-          }
-          if (endTime) {
+            params.push(presetStart);
             whereClause += ` AND created_at <= $${paramIndex++}`;
-            params.push(endTime);
+            params.push(presetEnd);
+          } else {
+            if (startTime) {
+              whereClause += ` AND created_at >= $${paramIndex++}`;
+              params.push(startTime);
+            }
+            if (endTime) {
+              whereClause += ` AND created_at <= $${paramIndex++}`;
+              params.push(endTime);
+            }
           }
           if (successful !== undefined) {
             whereClause += ` AND successful = $${paramIndex++}`;
@@ -103,6 +130,12 @@ export const transactionResolvers = {
           if (memoType) {
             whereClause += ` AND memo_type = $${paramIndex++}`;
             params.push(memoType);
+          }
+          if (addresses && addresses.length > 0) {
+            const placeholders = addresses.map((_, i) => `$${paramIndex + i}`).join(', ');
+            whereClause += ` AND source_account IN (${placeholders})`;
+            params.push(...addresses);
+            paramIndex += addresses.length;
           }
 
           const query = `

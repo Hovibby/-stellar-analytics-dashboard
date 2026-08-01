@@ -279,4 +279,46 @@ describe('Transaction Resolvers', () => {
       ).rejects.toThrow();
     });
   });
+
+  describe('Query.transactions with multiple account IDs', () => {
+    it('should filter by multiple accounts using addresses', async () => {
+      mockDb.cacheGet.mockResolvedValue(null);
+      mockDb.query.mockResolvedValue([]);
+      mockDb.queryOne.mockResolvedValue({ total: '0' });
+
+      await transactionResolvers.Query.transactions(
+        null,
+        {
+          pagination: { first: 5 },
+          filter: {
+            addresses: ['GABC123456789012345678901234567890123456789012345678901234', 'GDEF123456789012345678901234567890123456789012345678901234'],
+          },
+        },
+        {} as any,
+        {} as any
+      );
+
+      expect(mockDb.query).toHaveBeenCalled();
+      const queryCall = (mockDb.query as jest.Mock).mock.calls[0][0];
+      expect(queryCall).toContain('source_account IN');
+    });
+
+    it('should use default limit when limit is not specified', async () => {
+      mockDb.cacheGet.mockResolvedValue(null);
+      mockDb.query.mockResolvedValue([]);
+      mockDb.queryOne.mockResolvedValue({ total: '0' });
+
+      await transactionResolvers.Query.transactions(
+        null,
+        {
+          pagination: { first: 5 },
+        },
+        {} as any,
+        {} as any
+      );
+
+      const queryCall = (mockDb.query as jest.Mock).mock.calls[0][0];
+      expect(queryCall).toContain('LIMIT');
+    });
+  });
 });

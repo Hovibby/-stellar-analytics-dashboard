@@ -83,14 +83,14 @@ export const typeDefs = /* GraphQL */ `
     # Core Queries
     ledger(sequence: Int!): Ledger
     ledgers(limit: Int, cursor: String): LedgerConnection!
-    transactions(address: String, limit: Int): [Transaction!]!
+    transactions(address: String, addresses: [String!], limit: Int): [Transaction!]!
     operations(type: String, limit: Int): [Operation!]!
     
     # Analytics
     accountStats(address: String!): AccountStats!
     networkStats: NetworkStats!
     stats: Stats!
-    networkMetrics(timeRange: TimeRangeInput): [NetworkMetrics!]!
+    networkMetrics(timeRange: TimeRangeInput, preset: TimeRangePreset): [NetworkMetrics!]!
     assetVolume(assetCode: String!, timeframe: String!): AssetVolume!
     topAccounts(limit: Int): [TopAccount!]!
     
@@ -99,6 +99,18 @@ export const typeDefs = /* GraphQL */ `
     
     # Data freshness
     dataFreshness: DataFreshness!
+  }
+
+  enum TimeRangePreset {
+    LAST_HOUR
+    LAST_DAY
+    LAST_WEEK
+    LAST_MONTH
+  }
+
+  input TimeRangeInput {
+    startTime: String
+    endTime: String
   }
 
   type DailyCount {

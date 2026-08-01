@@ -304,7 +304,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Tab Content */}
+      {/* Tab Content — panel order/visibility driven by useDashboardLayout (issue #231) */}
       {activeTab === 'dashboard' && (
         <>
           <div className="grid">
