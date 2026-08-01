@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import { useQuery } from '@apollo/client';
 import { format } from 'date-fns';
 import {
@@ -131,7 +132,12 @@ export function TransactionDetail() {
   const { hash } = useParams<{ hash: string }>();
   const navigate = useNavigate();
   const [copied, setCopied] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'operations' | 'xdr'>('overview');
+  const TX_TABS = ['overview', 'operations', 'xdr'] as const;
+  const [activeTab, setActiveTab] = useUrlTab<'overview' | 'operations' | 'xdr'>(
+    'tab',
+    'overview',
+    TX_TABS,
+  );
   const [showFullXdr, setShowFullXdr] = useState<Record<string, boolean>>({});
 
   const { data, loading, error } = useQuery<TransactionData>(TRANSACTION_QUERY, {
