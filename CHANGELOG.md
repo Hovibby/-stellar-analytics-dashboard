@@ -71,14 +71,6 @@
 - add Husky pre-commit hooks, lint-staged, and commitlint (`ddba050a`)
 - update frontend dependencies (`ff4168ba`)
 
-### 🔀 Other
-
-- Solution for #137 - Add database connection pooling configuration (`c22e0674`)
-- Solution for #137 - Add database connection pooling configuration (`779d5d85`)
-- Solution for #137 - Add database connection pooling configuration (`59506751`)
-
----
-
 # Changelog
 
 All notable changes to the Stellar Analytics Dashboard are documented here.
