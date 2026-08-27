@@ -345,13 +345,6 @@ When reporting bugs, include:
 
 ## 💡 Feature Requests
 
-When requesting features:
 
-- Describe the use case
-- Explain why it's valuable
-- Consider implementation complexity
-- Provide examples if possible
-
----
 
 Thank you for contributing to Stellar Analytics Dashboard! 🎉
